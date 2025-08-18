@@ -1,4 +1,3 @@
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -9,7 +8,7 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 
 // --- Basic Setup ---
-dotenv.config();
+dotenv.config({ path: './backend/.env' });
 const app = express();
 const port = process.env.PORT || 8080;
 

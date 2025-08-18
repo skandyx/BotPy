@@ -1,16 +1,18 @@
-
 import { BotSettings, Trade, TradingMode } from '../types';
 
-const API_BASE_URL = '/api'; // Nginx will proxy this to our backend
+const API_BASE_URL = '/api'; // This will be proxied by Vite dev server or Nginx in production
 
 const getAuthToken = () => localStorage.getItem('authToken');
 
 const handleResponse = async (response: Response) => {
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'An unknown error occurred' }));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    if (response.status === 204) { // No Content
+        return;
     }
-    return response.json();
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+    }
+    return data;
 };
 
 const authorizedFetch = async (endpoint: string, options: RequestInit = {}) => {
@@ -18,8 +20,10 @@ const authorizedFetch = async (endpoint: string, options: RequestInit = {}) => {
     const headers = {
         'Content-Type': 'application/json',
         ...options.headers,
-        'Authorization': `Bearer ${token}`
     };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
     return handleResponse(response);
 };
@@ -45,7 +49,7 @@ export const api = {
     fetchSettings: async (): Promise<BotSettings> => {
         return authorizedFetch('/settings');
     },
-    updateSettings: async (settings: BotSettings): Promise<{ success: boolean }> => {
+    updateSettings: async (settings: Partial<BotSettings>): Promise<{ success: boolean }> => {
         return authorizedFetch('/settings', {
             method: 'POST',
             body: JSON.stringify(settings)
@@ -53,7 +57,7 @@ export const api = {
     },
 
     // Data
-    fetchBotStatus: async (tradingMode?: TradingMode) => {
+    fetchBotStatus: async () => {
         return authorizedFetch('/status');
     },
     fetchActivePositions: async () => {

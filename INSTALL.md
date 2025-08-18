@@ -92,7 +92,7 @@ Install the dependencies for both the frontend and the backend.
 
 ```bash
 # From the root directory of your project
-npm install
+npm run install:all
 ```
 *(This command is configured in the new `package.json` to install for both `backend` and the root `frontend`)*.
 
@@ -117,6 +117,7 @@ nano .env
 You **must** set the following variables:
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
+- `JWT_SECRET`: A long, random string for security.
 - `BINANCE_API_KEY`: Your Binance API key.
 - `BINANCE_SECRET_KEY`: Your Binance secret key.
 

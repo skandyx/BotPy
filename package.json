@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Root package for BOTPY trading bot (frontend and backend)",
+  "type": "module",
   "scripts": {
     "install:all": "npm install && (cd backend && npm install)",
     "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\"",
@@ -11,10 +12,15 @@
     "build": "vite build"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
     "vite": "^5.3.4"
   },
-  "workspaces": [
-    "backend"
-  ]
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.25.1",
+    "recharts": "^2.12.7",
+    "technicalindicators": "^3.1.0"
+  }
 }

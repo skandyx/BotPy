@@ -124,7 +124,7 @@ const DashboardPage: React.FC = () => {
             setLoading(true);
             try {
                 const [statusData, statsData, settingsData, historyData] = await Promise.all([
-                    api.fetchBotStatus(tradingMode),
+                    api.fetchBotStatus(),
                     api.fetchPerformanceStats(),
                     api.fetchSettings(),
                     api.fetchTradeHistory(),
@@ -155,7 +155,7 @@ const DashboardPage: React.FC = () => {
         const refreshStats = async () => {
             try {
                  const [statusData, statsData, historyData] = await Promise.all([
-                     api.fetchBotStatus(tradingMode),
+                     api.fetchBotStatus(),
                      api.fetchPerformanceStats(),
                      api.fetchTradeHistory(),
                  ]);
