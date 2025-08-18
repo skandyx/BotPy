@@ -8,7 +8,8 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 
 // --- Basic Setup ---
-dotenv.config({ path: './backend/.env' });
+// Correctly load .env file from the current directory (backend/)
+dotenv.config();
 const app = express();
 const port = process.env.PORT || 8080;
 
