@@ -52,7 +52,7 @@ export interface ScannedPair {
     marketRegime?: 'UPTREND' | 'DOWNTREND' | 'NEUTRAL'; // For market regime filter
     rsi: number;
     adx: number;
-    score: 'STRONG BUY' | 'BUY' | 'HOLD';
+    score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN';
     volatility: number; // Volatility as a percentage
 }
 

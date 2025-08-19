@@ -114,6 +114,7 @@ const ScannerPage: React.FC = () => {
         case 'STRONG BUY': return 'bg-green-600 text-green-100';
         case 'BUY': return 'bg-green-800 text-green-200';
         case 'HOLD': return 'bg-gray-700 text-gray-200';
+        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
         default: return 'bg-gray-700 text-gray-200';
     }
   };

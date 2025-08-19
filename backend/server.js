@@ -296,6 +296,14 @@ class RealtimeAnalyzer {
                 }
             }
         }
+        
+        // 3. Check for loss cooldown override.
+        if (score === 'BUY' || score === 'STRONG BUY') {
+            const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
+            if (cooldownInfo && Date.now() < cooldownInfo.until) {
+                score = 'COOLDOWN';
+            }
+        }
 
         pairToUpdate.rsi = rsi;
         pairToUpdate.adx = adx;
