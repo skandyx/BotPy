@@ -63,6 +63,7 @@ wss.on('connection', (ws) => {
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
+            log('WEBSOCKET', `Received message type '${data.type}' from client.`);
             if (data.type === 'SUBSCRIBE' && Array.isArray(data.symbols)) {
                 priceFeeder.updateSubscriptions(data.symbols);
             }
@@ -76,6 +77,10 @@ wss.on('connection', (ws) => {
     });
 });
 function broadcast(message) {
+    // Avoid logging the log entries themselves to prevent an infinite loop/clutter
+    if (message.type !== 'LOG_ENTRY') {
+        log('WEBSOCKET', `Broadcasting message type '${message.type}' to ${clients.size} clients.`);
+    }
     const data = JSON.stringify(message);
     for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) {
@@ -416,6 +421,13 @@ const runScannerLoop = async () => {
     log("SCANNER", "Starting new market scan cycle...");
     try {
         const newScannedPairs = await scannerService.runScan(botState.settings);
+
+        // This check makes the scanner resilient to temporary API failures.
+        // If the scan failed and returned null/undefined, we keep the old cache.
+        if (!newScannedPairs) {
+            log('WARN', 'Scanner cycle returned no data, likely due to an API error. Retaining previous cache.');
+            return;
+        }
 
         // Create maps for efficient merging
         const newPairsMap = new Map(newScannedPairs.map(p => [p.symbol, p]));

@@ -47,6 +47,8 @@ const connect = () => {
     socket.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
+            // Log the received message type for better traceability in the console's WEBSOCKET tab
+            logService.log('WEBSOCKET', `Received message type '${message.type}' from backend.`);
             switch (message.type) {
                 case 'PRICE_UPDATE':
                     priceStore.updatePrice(message.payload);
