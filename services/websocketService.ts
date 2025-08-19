@@ -116,10 +116,10 @@ export const websocketService = {
     connect,
     disconnect,
     subscribeToSymbols,
-    onStatusChange: (callback: StatusChangeCallback) => {
+    onStatusChange: (callback: StatusChangeCallback | null) => {
         statusCallback = callback;
     },
-    onDataRefresh: (callback: DataRefreshCallback) => {
+    onDataRefresh: (callback: DataRefreshCallback | null) => {
         dataRefreshCallback = callback;
     }
 };

@@ -13,28 +13,34 @@ import { useAppContext } from '../../contexts/AppContext';
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setConnectionStatus } = useWebSocket();
   const { isAuthenticated } = useAuth();
-  const { settingsActivityCounter } = useAppContext(); // Listen for settings changes
+  const { settingsActivityCounter, refreshData } = useAppContext(); // Listen for settings/trade changes
 
   useEffect(() => {
     // This effect handles the application's main data flow and WebSocket connection.
     // It runs on login/logout and whenever settings are updated.
-    
-    let scannerInterval: number | null = null;
 
     if (isAuthenticated) {
         logService.log('INFO', "User is authenticated, initializing data and WebSocket...");
+        
+        // Connect the WebSocket service status to the React context for the UI
+        websocketService.onStatusChange(setConnectionStatus);
+        
+        // Connect the data refresh callback for position updates
+        websocketService.onDataRefresh(refreshData);
+
         websocketService.connect();
         
         const initializeAndFetchData = async () => {
             try {
                 // 1. Fetch the latest settings and update the scanner store.
-                // This is crucial for real-time indicator calculations.
+                // This is crucial for real-time indicator calculations on the backend.
                 logService.log('INFO', 'Fetching settings and initializing scanner store...');
                 const settings = await api.fetchSettings();
-                scannerStore.updateSettings(settings);
+                scannerStore.updateSettings(settings); // Frontend store keeps a reference
                 scannerStore.initialize();
 
-                // 2. Perform an initial fetch of scanner data.
+                // 2. Perform an initial fetch of scanner data to populate the view.
+                // Subsequent updates will arrive exclusively via WebSocket.
                 const pairs = await api.fetchScannedPairs();
                 scannerStore.updatePairList(pairs);
             } catch (error) {
@@ -43,16 +49,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         };
 
         initializeAndFetchData();
-        
-        // Start polling for scanner data to catch any new pairs found by the backend scan.
-        scannerInterval = window.setInterval(async () => {
-            try {
-                const pairs = await api.fetchScannedPairs();
-                scannerStore.updatePairList(pairs);
-            } catch (error) {
-                logService.log('ERROR', `Failed to poll scanner data: ${error}`);
-            }
-        }, 10000); // Poll every 10 seconds
 
     } else {
         logService.log('INFO', "User is not authenticated, disconnecting WebSocket.");
@@ -61,13 +57,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     
     return () => {
       // Cleanup when the effect re-runs or on logout.
-      if (scannerInterval) clearInterval(scannerInterval);
       if (!isAuthenticated) {
           logService.log('INFO', "Layout cleanup: ensuring WebSocket is disconnected.");
           websocketService.disconnect();
       }
+      // Clean up callbacks to prevent memory leaks with stale context
+      websocketService.onStatusChange(null);
+      websocketService.onDataRefresh(null);
     };
-  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter]);
+  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData]);
 
   return (
     <div className="flex h-screen bg-[#0c0e12] overflow-hidden">
