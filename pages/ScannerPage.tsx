@@ -45,11 +45,17 @@ const SortableHeader: React.FC<{
     );
 };
 
+const EmptyScannerIcon = () => (
+    <svg className="mx-auto h-12 w-12 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth="1" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" />
+    </svg>
+);
+
 
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(() => scannerStore.getScannedPairs().length === 0);
+  const [isInitialLoading, setIsInitialLoading] = useState(() => scannerStore.getScannedPairs().length === 0);
 
   const handlePriceUpdate = useCallback((update: PriceUpdate) => {
     setPairs(prevPairs => 
@@ -64,23 +70,27 @@ const ScannerPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Subscribe to both the scanner store (for indicator updates) and price store (for UI flashes)
     const handleScannerUpdate = (updatedPairs: ScannedPair[]) => {
       setPairs(updatedPairs);
-      setIsLoading(updatedPairs.length === 0);
+      // This is the crucial change: only modify loading state on the initial data load.
+      if (isInitialLoading) {
+        setIsInitialLoading(false);
+      }
     };
     
     const unsubscribeScanner = scannerStore.subscribe(handleScannerUpdate);
     const unsubscribePrice = priceStore.subscribe(handlePriceUpdate);
 
-    // Initial check in case data arrived between render and effect
-    setIsLoading(scannerStore.getScannedPairs().length === 0);
+    // Re-check in case data was loaded between component init and this effect.
+    if (isInitialLoading && scannerStore.getScannedPairs().length > 0) {
+        setIsInitialLoading(false);
+    }
 
     return () => {
         unsubscribeScanner();
         unsubscribePrice();
     };
-  }, [handlePriceUpdate]);
+  }, [handlePriceUpdate, isInitialLoading]);
 
 
   const requestSort = (key: SortableKeys) => {
@@ -140,7 +150,7 @@ const ScannerPage: React.FC = () => {
     }
   }
 
-  if (isLoading) {
+  if (isInitialLoading) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
 
@@ -165,30 +175,47 @@ const ScannerPage: React.FC = () => {
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
-                    {sortedPairs.map(pair => {
-                        const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
-                        const rsiClass = pair.rsi > 70 ? 'text-yellow-400' : (pair.rsi < 30 ? 'text-purple-400' : 'text-gray-300');
-                        const adxClass = pair.adx > 25 ? 'text-blue-400 font-bold' : 'text-gray-300';
-                        
-                        return (
-                            <tr key={pair.symbol}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
-                                        {pair.score}
-                                    </span>
-                                </td>
-                            </tr>
-                        )
-                    })}
+                    {sortedPairs.length > 0 ? (
+                        sortedPairs.map(pair => {
+                            const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
+                            const rsiClass = pair.rsi > 70 ? 'text-yellow-400' : (pair.rsi < 30 ? 'text-purple-400' : 'text-gray-300');
+                            const adxClass = pair.adx > 25 ? 'text-blue-400 font-bold' : 'text-gray-300';
+                            
+                            return (
+                                <tr key={pair.symbol}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
+                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
+                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
+                                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
+                                            {pair.score}
+                                        </span>
+                                    </td>
+                                </tr>
+                            )
+                        })
+                    ) : (
+                         <tr>
+                            <td colSpan={10} className="px-6 py-16 text-center text-gray-500">
+                                <div className="flex flex-col items-center">
+                                    <EmptyScannerIcon />
+                                    <h3 className="mt-4 text-sm font-semibold text-gray-300">No Pairs Found</h3>
+                                    <p className="mt-1 text-sm text-gray-500">
+                                        No pairs currently meet the scanner's criteria.
+                                    </p>
+                                    <p className="mt-1 text-sm text-gray-500">
+                                        Try adjusting your filters on the Settings page or wait for market conditions to change.
+                                    </p>
+                                </div>
+                            </td>
+                        </tr>
+                    )}
                 </tbody>
             </table>
         </div>
