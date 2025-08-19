@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, ReactNode, useCallback } fr
 
 interface AppContextType {
   tradeActivityCounter: number;
-  incrementTradeActivity: () => void;
+  refreshData: () => void;
   settingsActivityCounter: number;
   incrementSettingsActivity: () => void;
 }
@@ -13,7 +13,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tradeActivityCounter, setTradeActivityCounter] = useState(0);
   const [settingsActivityCounter, setSettingsActivityCounter] = useState(0);
 
-  const incrementTradeActivity = useCallback(() => {
+  const refreshData = useCallback(() => {
     setTradeActivityCounter(prev => prev + 1);
   }, []);
   
@@ -22,7 +22,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   return (
-    <AppContext.Provider value={{ tradeActivityCounter, incrementTradeActivity, settingsActivityCounter, incrementSettingsActivity }}>
+    <AppContext.Provider value={{ tradeActivityCounter, refreshData, settingsActivityCounter, incrementSettingsActivity }}>
       {children}
     </AppContext.Provider>
   );

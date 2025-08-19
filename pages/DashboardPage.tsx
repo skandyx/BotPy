@@ -9,7 +9,6 @@ import Modal from '../components/common/Modal';
 import { useAppContext } from '../contexts/AppContext';
 import { useBotState } from '../contexts/BotStateContext';
 import { positionService } from '../services/positionService';
-import { tradingEngineService } from '../services/tradingEngineService';
 
 const formatPrice = (price: number | undefined | null): string => {
     if (price === undefined || price === null) return 'N/A';
@@ -85,7 +84,7 @@ const DashboardPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
     const [tradeToClose, setTradeToClose] = useState<Trade | null>(null);
-    const { tradeActivityCounter, incrementTradeActivity } = useAppContext();
+    const { tradeActivityCounter, refreshData } = useAppContext();
     const { tradingMode } = useBotState();
 
     const openCloseModal = (trade: Trade) => {
@@ -99,8 +98,7 @@ const DashboardPage: React.FC = () => {
             const closedTrade = await api.closeTrade(tradeToClose.id);
             if (closedTrade) {
                 positionService.removePosition(tradeToClose.id);
-                tradingEngineService.registerClosedTrade(closedTrade); // Notify engine for cooldown logic
-                incrementTradeActivity(); // Triggers a lightweight stat refresh
+                refreshData(); // Triggers a lightweight stat refresh
             }
         } catch (error) {
             console.error("Failed to manually close trade:", error);

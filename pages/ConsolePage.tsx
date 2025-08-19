@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { logService } from '../services/logService';
 import { LogEntry } from '../types';
 
-const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'BINANCE_API', 'BINANCE_WS'];
+const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'COINGECKO', 'BINANCE_API', 'BINANCE_WS'];
 type Tab = 'ALL' | LogEntry['level'];
 const TABS: Readonly<Tab[]> = ['ALL', ...LOG_LEVELS];
 
@@ -40,6 +40,7 @@ const ConsolePage: React.FC = () => {
       case 'TRADE': return 'text-green-400';
       case 'WEBSOCKET': return 'text-purple-400';
       case 'SCANNER': return 'text-blue-400';
+      case 'COINGECKO': return 'text-lime-400';
       case 'BINANCE_API': return 'text-orange-400';
       case 'BINANCE_WS': return 'text-amber-500';
       default: return 'text-gray-400';

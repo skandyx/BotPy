@@ -9,9 +9,11 @@ export interface PriceUpdate {
 }
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
+type DataRefreshCallback = () => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
+let dataRefreshCallback: DataRefreshCallback | null = null;
 let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
 let watchedSymbols = new Set<string>();
@@ -38,7 +40,6 @@ const connect = () => {
     socket.onopen = () => {
         logService.log('WEBSOCKET', 'Successfully connected to backend.');
         statusCallback?.(WebSocketStatus.CONNECTED);
-        // On connection, tell the backend which symbols we care about
         subscribeToSymbols(Array.from(watchedSymbols));
     };
 
@@ -50,18 +51,15 @@ const connect = () => {
                     priceStore.updatePrice(message.payload);
                     break;
                 case 'POSITIONS_UPDATED':
-                    logService.log('TRADE', 'Positions updated by backend, fetching new data...');
-                    api.fetchActivePositions().then(positionService._initialize);
-                    api.fetchTradeHistory(); // Potentially trigger update on history page
+                    logService.log('TRADE', 'Positions updated by backend, triggering data refresh...');
+                    dataRefreshCallback?.();
                     break;
                 case 'BOT_STATUS_UPDATE':
-                    // This can be handled by a context if needed in the future
                     logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
                     break;
                 case 'LOG_ENTRY':
-                    const { level, message: logMessage } = message.payload as LogEntry;
-                    // We re-log it on the client side so it goes through the same filtering logic
-                    logService.log(level, logMessage);
+                    const logPayload = message.payload as LogEntry;
+                    logService.log(logPayload.level, logPayload.message);
                     break;
                 default:
                     logService.log('WEBSOCKET', `Received unknown message type: ${message.type}`);
@@ -100,6 +98,7 @@ const disconnect = () => {
 };
 
 const subscribeToSymbols = (symbols: string[]) => {
+    watchedSymbols = new Set(symbols);
     if (socket && socket.readyState === WebSocket.OPEN) {
         logService.log('WEBSOCKET', `Sending subscription request for ${symbols.length} symbols.`);
         socket.send(JSON.stringify({ type: 'SUBSCRIBE', symbols }));
@@ -108,29 +107,14 @@ const subscribeToSymbols = (symbols: string[]) => {
     }
 };
 
-const registerOwner = (owner: string, symbols: string[]) => {
-    // For simplicity in the new architecture, we'll just combine all symbols.
-    // A more complex system could track owners, but this works.
-    let changed = false;
-    symbols.forEach(s => {
-        if (!watchedSymbols.has(s)) {
-            watchedSymbols.add(s);
-            changed = true;
-        }
-    });
-
-    if (changed) {
-        subscribeToSymbols(Array.from(watchedSymbols));
-    }
-};
-
 export const websocketService = {
     connect,
     disconnect,
-    registerOwner,
+    subscribeToSymbols,
     onStatusChange: (callback: StatusChangeCallback) => {
         statusCallback = callback;
     },
+    onDataRefresh: (callback: DataRefreshCallback) => {
+        dataRefreshCallback = callback;
+    }
 };
-// This is a bit of a hack to avoid circular dependencies with mockApi
-import { api } from './mockApi';
