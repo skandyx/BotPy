@@ -84,7 +84,7 @@ const DashboardPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
     const [tradeToClose, setTradeToClose] = useState<Trade | null>(null);
-    const { tradeActivityCounter, refreshData } = useAppContext();
+    const { tradeActivityCounter } = useAppContext();
     const { tradingMode } = useBotState();
 
     const openCloseModal = (trade: Trade) => {
@@ -95,11 +95,9 @@ const DashboardPage: React.FC = () => {
     const handleManualClose = async () => {
         if (!tradeToClose) return;
         try {
-            const closedTrade = await api.closeTrade(tradeToClose.id);
-            if (closedTrade) {
-                positionService.removePosition(tradeToClose.id);
-                refreshData(); // Triggers a lightweight stat refresh
-            }
+            // The API call triggers a WebSocket message from the backend,
+            // which causes AppContext to refresh all position data automatically.
+            await api.closeTrade(tradeToClose.id);
         } catch (error) {
             console.error("Failed to manually close trade:", error);
         } finally {

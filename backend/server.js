@@ -458,6 +458,7 @@ const tradingEngine = {
     },
     tick: async function() {
         if (!botState.isRunning) return;
+        let positionsWereUpdated = false;
 
         // 1. Manage existing positions
         for (const position of [...botState.activePositions]) {
@@ -472,26 +473,44 @@ const tradingEngine = {
             position.pnl = pnl;
             position.pnl_pct = pnl_pct;
 
-            // Update highest price for TSL
+            // Update highest price for TSL. If it updates, we need to save state.
             if (currentPrice > position.highest_price_since_entry) {
                 position.highest_price_since_entry = currentPrice;
+                positionsWereUpdated = true; // The peak price is part of the state
                 if (botState.settings.USE_TRAILING_STOP_LOSS) {
                     const newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
                     if (newStopLoss > position.stop_loss) {
                         position.stop_loss = newStopLoss;
                         log('TRADE', `Trailing Stop Loss for ${position.symbol} updated to ${newStopLoss.toFixed(4)}`);
+                        // The flag is already set, no need to set it again.
                     }
                 }
             }
 
-            if (currentPrice >= position.take_profit) {
-                this.closeTrade(position.id, currentPrice, 'Take Profit hit');
-                continue;
+            // --- EXIT LOGIC ---
+            if (botState.settings.USE_TRAILING_STOP_LOSS) {
+                // If TSL is enabled, it becomes the only automatic exit condition for profit/loss.
+                // The initial Take Profit is ignored, allowing winners to run.
+                if (currentPrice <= position.stop_loss) {
+                    this.closeTrade(position.id, currentPrice, 'Trailing Stop Loss hit');
+                    continue; // Move to the next position
+                }
+            } else {
+                // Standard, fixed TP/SL logic if TSL is disabled.
+                if (currentPrice >= position.take_profit) {
+                    this.closeTrade(position.id, currentPrice, 'Take Profit hit');
+                    continue;
+                }
+                if (currentPrice <= position.stop_loss) {
+                    this.closeTrade(position.id, currentPrice, 'Stop Loss hit');
+                    continue;
+                }
             }
-            if (currentPrice <= position.stop_loss) {
-                this.closeTrade(position.id, currentPrice, 'Stop Loss hit');
-                continue;
-            }
+        }
+
+        if (positionsWereUpdated) {
+            await saveData('state');
+            broadcast({ type: 'POSITIONS_UPDATED' });
         }
         
         // 2. Look for new positions
@@ -546,7 +565,7 @@ const tradingEngine = {
             entry_price: entryPrice,
             quantity: quantity,
             stop_loss: entryPrice * (1 - settings.STOP_LOSS_PCT / 100),
-            take_profit: entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100),
+            take_profit: entryPrice * (1 - settings.TAKE_PROFIT_PCT / 100),
             highest_price_since_entry: entryPrice,
             entry_time: new Date().toISOString(),
             status: 'FILLED',

@@ -1,4 +1,7 @@
 import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
+import { api } from '../services/mockApi';
+import { positionService } from '../services/positionService';
+import { logService } from '../services/logService';
 
 interface AppContextType {
   tradeActivityCounter: number;
@@ -13,8 +16,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tradeActivityCounter, setTradeActivityCounter] = useState(0);
   const [settingsActivityCounter, setSettingsActivityCounter] = useState(0);
 
-  const refreshData = useCallback(() => {
-    setTradeActivityCounter(prev => prev + 1);
+  const refreshData = useCallback(async () => {
+    logService.log('INFO', 'WebSocket triggered position refresh. Fetching fresh data...');
+    try {
+        const freshPositions = await api.fetchActivePositions();
+        positionService.setPositions(freshPositions);
+        setTradeActivityCounter(prev => prev + 1);
+    } catch (error) {
+        logService.log('ERROR', `Failed to refresh positions: ${error}`);
+    }
   }, []);
   
   const incrementSettingsActivity = useCallback(() => {

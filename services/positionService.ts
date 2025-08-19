@@ -89,6 +89,11 @@ class PositionService {
         return undefined;
     }
     
+    public setPositions(positions: Trade[]): void {
+        this.activePositions = positions;
+        this.notify();
+    }
+
     public updatePosition(tradeId: number, updates: Partial<Trade>): void {
         const tradeIndex = this.activePositions.findIndex(t => t.id === tradeId);
         if (tradeIndex > -1) {
