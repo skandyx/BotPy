@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
+import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
 import { RSI, ADX } from 'technicalindicators';
 
@@ -180,6 +181,7 @@ class RealtimeAnalyzer {
         this.log = log;
         this.settings = {};
         this.klineData = new Map();
+        this.hydrating = new Set(); // Prevents multiple simultaneous fetches for the same symbol
     }
 
     updateSettings(newSettings) {
@@ -187,12 +189,46 @@ class RealtimeAnalyzer {
         this.settings = newSettings;
     }
 
-    handleKline(klineMsg) {
+    async _hydrateKlines(symbol) {
+        if (this.hydrating.has(symbol)) return; // Already fetching
+        this.hydrating.add(symbol);
+        this.log('INFO', `[Analyzer] Hydrating initial 1m kline data for ${symbol}...`);
+        try {
+            const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=100`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Binance API error: ${response.statusText}`);
+            const klines = await response.json();
+            if (!Array.isArray(klines)) throw new Error('Invalid response from Binance');
+
+            const formattedKlines = klines.map(k => ({
+                close: parseFloat(k[4]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                volume: parseFloat(k[5]),
+            }));
+            
+            this.klineData.set(symbol, formattedKlines);
+            this.log('INFO', `[Analyzer] Successfully hydrated ${symbol} with ${formattedKlines.length} klines.`);
+        } catch (error) {
+            this.log('ERROR', `[Analyzer] Failed to hydrate klines for ${symbol}: ${error.message}`);
+            // Set an empty array to prevent re-fetching on every tick
+            this.klineData.set(symbol, []); 
+        } finally {
+            this.hydrating.delete(symbol);
+        }
+    }
+
+    async handleKline(klineMsg) {
         if (!this.settings || Object.keys(this.settings).length === 0) return;
 
         const symbol = klineMsg.s;
-        const k = klineMsg.k;
         
+        // Hydrate historical data if this is the first time we see this symbol
+        if (!this.klineData.has(symbol)) {
+            await this._hydrateKlines(symbol);
+        }
+
+        const k = klineMsg.k;
         const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
         if (!pairToUpdate) return;
 
@@ -208,7 +244,7 @@ class RealtimeAnalyzer {
         if (existingKlines.length > 100) existingKlines.shift();
         this.klineData.set(symbol, existingKlines);
         
-        if (existingKlines.length < 20) return;
+        if (existingKlines.length < 20) return; // Not enough data yet
 
         const closes = existingKlines.map(d => d.close);
         const highs = existingKlines.map(d => d.high);
@@ -346,13 +382,13 @@ const priceFeeder = {
 
 const klineFeeder = {
     ...createBinanceFeeder('KlineFeeder', (s) => `${s.toLowerCase()}@kline_1m`),
-    handleMessage: function(data) {
+    handleMessage: async function(data) {
         const message = JSON.parse(data.toString());
         if (message.data && message.data.e === 'kline') {
             const kline = message.data;
             if (kline.k.x) { // Is candle closed?
                 log('BINANCE_WS', `1m Kline closed for ${kline.s}: C=${kline.k.c} V=${kline.k.v}`);
-                realtimeAnalyzer.handleKline(kline);
+                await realtimeAnalyzer.handleKline(kline);
             }
         }
     }
