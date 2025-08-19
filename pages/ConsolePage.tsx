@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { logService } from '../services/logService';
 import { LogEntry } from '../types';
 
-const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'GECKO', 'BINANCE'];
+const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'BINANCE_API', 'BINANCE_WS'];
 type Tab = 'ALL' | LogEntry['level'];
 const TABS: Readonly<Tab[]> = ['ALL', ...LOG_LEVELS];
 
@@ -39,8 +39,9 @@ const ConsolePage: React.FC = () => {
       case 'ERROR': return 'text-red-400';
       case 'TRADE': return 'text-green-400';
       case 'WEBSOCKET': return 'text-purple-400';
-      case 'GECKO': return 'text-blue-400';
-      case 'BINANCE': return 'text-orange-400';
+      case 'SCANNER': return 'text-blue-400';
+      case 'BINANCE_API': return 'text-orange-400';
+      case 'BINANCE_WS': return 'text-amber-500';
       default: return 'text-gray-400';
     }
   };
@@ -72,7 +73,7 @@ const ConsolePage: React.FC = () => {
                               : 'border-transparent text-gray-400 hover:text-white'
                       }`}
                   >
-                      {tab.toLowerCase().replace('_', ' ')}
+                      {tab.toLowerCase().replace(/_/g, ' ')}
                   </button>
               ))}
           </div>
@@ -86,7 +87,7 @@ const ConsolePage: React.FC = () => {
                       <span className="text-gray-500 mr-4 whitespace-nowrap">
                         {new Date(log.timestamp).toLocaleString(undefined, timestampFormatOptions)}
                       </span>
-                      <span className={`${getLogLevelClass(log.level)} font-bold w-24 flex-shrink-0`}>
+                      <span className={`${getLogLevelClass(log.level)} font-bold w-28 flex-shrink-0`}>
                           [{log.level}]
                       </span>
                       <span className="text-gray-300 flex-1 whitespace-pre-wrap break-words">{log.message}</span>

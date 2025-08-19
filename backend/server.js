@@ -43,7 +43,7 @@ const wss = new WebSocketServer({ server });
 const clients = new Set();
 wss.on('connection', (ws) => {
     clients.add(ws);
-    console.log('Frontend client connected.');
+    log('INFO', 'Frontend client connected.');
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
@@ -51,12 +51,12 @@ wss.on('connection', (ws) => {
                 priceFeeder.updateSubscriptions(data.symbols);
             }
         } catch (e) {
-            console.error('Failed to parse message from client:', message);
+            log('ERROR', `Failed to parse message from client: ${message}`);
         }
     });
     ws.on('close', () => {
         clients.delete(ws);
-        console.log('Frontend client disconnected.');
+        log('INFO', 'Frontend client disconnected.');
     });
 });
 function broadcast(message) {
@@ -67,6 +67,20 @@ function broadcast(message) {
         }
     }
 }
+
+// --- Logging Service ---
+const log = (level, message) => {
+    console.log(`[${level}] ${message}`);
+    const logEntry = {
+        type: 'LOG_ENTRY',
+        payload: {
+            timestamp: new Date().toISOString(),
+            level,
+            message
+        }
+    };
+    broadcast(logEntry);
+};
 
 // --- Persistence ---
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -88,7 +102,7 @@ const loadData = async () => {
         const settingsContent = await fs.readFile(SETTINGS_FILE_PATH, 'utf-8');
         botState.settings = JSON.parse(settingsContent);
     } catch {
-        console.log("settings.json not found. Loading from .env defaults.");
+        log("WARN", "settings.json not found. Loading from .env defaults.");
         botState.settings = {
             INITIAL_VIRTUAL_BALANCE: parseFloat(process.env.INITIAL_VIRTUAL_BALANCE) || 10000,
             MAX_OPEN_POSITIONS: parseInt(process.env.MAX_OPEN_POSITIONS, 10) || 5,
@@ -117,7 +131,7 @@ const loadData = async () => {
         const persistedState = JSON.parse(stateContent);
         Object.assign(botState, persistedState);
     } catch {
-        console.log("state.json not found. Initializing default state.");
+        log("WARN", "state.json not found. Initializing default state.");
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
@@ -160,7 +174,7 @@ const priceFeeder = {
         if (this.ws) this.ws.close();
         
         if (this.subscribedSymbols.size === 0) {
-            console.log("[PriceFeeder] No symbols to subscribe to. Skipping connection.");
+            log("BINANCE_WS", "No symbols to subscribe to. Skipping connection.");
             return;
         }
 
@@ -168,7 +182,7 @@ const priceFeeder = {
         const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
         this.ws = new WebSocket(url);
 
-        this.ws.on('open', () => console.log(`[PriceFeeder] Connected to Binance for ${this.subscribedSymbols.size} symbols.`));
+        this.ws.on('open', () => log("BINANCE_WS", `Connected to Binance for ${this.subscribedSymbols.size} symbols.`));
         this.ws.on('message', (data) => {
             const message = JSON.parse(data.toString());
             if (message.data && message.data.e === '24hrMiniTicker') {
@@ -180,10 +194,10 @@ const priceFeeder = {
             }
         });
         this.ws.on('close', () => {
-            console.log('[PriceFeeder] Disconnected from Binance. Will reconnect if needed.');
+            log('WARN', '[PriceFeeder] Disconnected from Binance. Will reconnect in 5s.');
             setTimeout(() => this.connect(), 5000);
         });
-        this.ws.on('error', (err) => console.error('[PriceFeeder] Error:', err));
+        this.ws.on('error', (err) => log('ERROR', `[PriceFeeder] Error: ${err.message}`));
     },
     updateSubscriptions: function(newSymbols) {
         let needsReconnect = false;
@@ -201,7 +215,7 @@ const priceFeeder = {
 
         if (needsReconnect) {
             this.subscribedSymbols = newSet;
-            console.log(`[PriceFeeder] Subscriptions updated with ${newSet.size} symbols. Reconnecting to Binance.`);
+            log("BINANCE_WS", `Subscriptions updated with ${newSet.size} symbols. Reconnecting to Binance.`);
             this.connect();
         }
     }
@@ -209,7 +223,7 @@ const priceFeeder = {
 
 // --- Scanner Logic ---
 const runScanner = async () => {
-    console.log("Running market scanner...");
+    log("SCANNER", "Running market scanner...");
     try {
         const response = await fetch('https://api.binance.com/api/v3/ticker/24hr');
         if (!response.ok) {
@@ -225,7 +239,7 @@ const runScanner = async () => {
             (parseFloat(ticker.quoteVolume) > botState.settings.MIN_VOLUME_USD)
         );
 
-        console.log(`Found ${filteredTickers.length} pairs after volume and exclusion filters.`);
+        log("SCANNER", `Found ${filteredTickers.length} pairs after volume and exclusion filters.`);
 
         const scannedPairs = [];
         for (const ticker of filteredTickers) {
@@ -271,14 +285,14 @@ const runScanner = async () => {
         }
         
         botState.scannerCache = { data: scannedPairs, timestamp: Date.now() };
-        console.log(`Scanner finished. Found ${scannedPairs.length} viable pairs.`);
+        log("SCANNER", `Scanner finished. Found ${scannedPairs.length} viable pairs.`);
         
         // Update price feeder with the new list of symbols
         const symbolsToWatch = scannedPairs.map(p => p.symbol);
         priceFeeder.updateSubscriptions(symbolsToWatch);
 
     } catch (error) {
-        console.error("Error during scanner run:", error);
+        log("ERROR", `Error during scanner run: ${error.message}`);
     }
 };
 
@@ -287,7 +301,7 @@ const tradingEngine = {
     interval: null,
     start: function() {
         if (this.interval) return;
-        console.log('[Engine] Starting...');
+        log('TRADE', 'Trading Engine starting...');
         botState.isRunning = true;
         this.interval = setInterval(this.tick.bind(this), 5000);
         saveData('state');
@@ -295,7 +309,7 @@ const tradingEngine = {
     },
     stop: function() {
         if (!this.interval) return;
-        console.log('[Engine] Stopping...');
+        log('TRADE', 'Trading Engine stopping...');
         clearInterval(this.interval);
         this.interval = null;
         botState.isRunning = false;
@@ -333,6 +347,7 @@ app.get('/api/settings', isAuthenticated, (req, res) => res.json(botState.settin
 app.post('/api/settings', isAuthenticated, async (req, res) => {
     botState.settings = { ...botState.settings, ...req.body };
     await saveData('settings');
+    log('INFO', 'Bot settings have been updated.');
     res.json({ success: true });
 });
 
@@ -386,9 +401,10 @@ app.post('/api/close-trade/:id', isAuthenticated, async (req, res) => {
 app.post('/api/test-connection', isAuthenticated, async (req, res) => {
     const { apiKey, secretKey } = req.body;
     if (!apiKey || !secretKey) {
+        log('WARN', 'API connection test failed: Keys not provided.');
         return res.status(400).json({ success: false, message: 'API Key and Secret Key are required.' });
     }
-    
+    log('BINANCE_API', 'Testing Binance API connection...');
     try {
         const timestamp = Date.now();
         const queryString = `timestamp=${timestamp}`;
@@ -404,12 +420,14 @@ app.post('/api/test-connection', isAuthenticated, async (req, res) => {
         const data = await response.json();
 
         if (response.ok) {
+            log('BINANCE_API', 'Binance API connection successful!');
             res.json({ success: true, message: 'Connection successful!' });
         } else {
+            log('ERROR', `Binance API Error: ${data.msg} (Code: ${data.code})`);
             res.status(response.status).json({ success: false, message: `Binance API Error: ${data.msg} (Code: ${data.code})` });
         }
     } catch (error) {
-        console.error("Test connection error:", error);
+        log("ERROR", `Test connection failed: ${error.message}`);
         res.status(500).json({ success: false, message: 'Failed to connect to Binance API.' });
     }
 });
@@ -429,7 +447,7 @@ app.post('/api/bot/stop', isAuthenticated, (req, res) => {
 // --- Startup ---
 server.listen(port, async () => {
     await loadData();
-    console.log(`Backend server running on http://localhost:${port}`);
+    log('INFO', `Backend server running on http://localhost:${port}`);
     // Start scanner loop
     setInterval(runScanner, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
     await runScanner();

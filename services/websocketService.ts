@@ -1,4 +1,4 @@
-import { WebSocketStatus } from '../types';
+import { WebSocketStatus, LogEntry } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
 import { positionService } from './positionService';
@@ -57,6 +57,11 @@ const connect = () => {
                 case 'BOT_STATUS_UPDATE':
                     // This can be handled by a context if needed in the future
                     logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
+                    break;
+                case 'LOG_ENTRY':
+                    const { level, message: logMessage } = message.payload as LogEntry;
+                    // We re-log it on the client side so it goes through the same filtering logic
+                    logService.log(level, logMessage);
                     break;
                 default:
                     logService.log('WEBSOCKET', `Received unknown message type: ${message.type}`);

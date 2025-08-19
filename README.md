@@ -25,7 +25,7 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 
 -   **Purpose**: Provides secure access to the dashboard.
 -   **Design**: A minimalist, centered form featuring the "BOTPY" logo.
--   **Functionality**: A single password field (hardcoded to `password` for this version).
+-   **Functionality**: A single password field (configured on the backend).
 
 ### 📊 Dashboard
 
@@ -69,7 +69,7 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 ### 🖥️ Console
 
 -   **Purpose**: Provides a transparent, real-time view into the bot's internal operations.
--   **Key Components**: Color-coded log levels and filter tabs, including a dedicated **`BINANCE`** tab for API-related messages.
+-   **Key Components**: Color-coded log levels and filter tabs, including dedicated tabs for **`SCANNER`**, **`BINANCE API`**, and **`BINANCE WS`** messages.
 
 ---
 
@@ -81,7 +81,7 @@ The bot employs a conservative, multi-filter, trend-following strategy designed 
 
 This initial stage runs periodically to select a universe of relevant pairs to analyze.
 
-1.  **Fetch Tickers**: Retrieves all USDT-based pairs from Binance via the CoinGecko API.
+1.  **Fetch Tickers**: Retrieves all USDT-based pairs directly from the Binance 24hr Ticker API.
 2.  **Volume Filter**: Discards any pair with a 24-hour trading volume below the `Min Volume (USD)` threshold.
 3.  **Exclusion Filter**: Removes any pairs manually listed in the `Exclude Pairs` setting.
 4.  **Initial Analysis**: For each remaining pair, it fetches historical data (up to 200 candles on the 4h timeframe) to establish a baseline for trend, volatility, and the overall market regime.

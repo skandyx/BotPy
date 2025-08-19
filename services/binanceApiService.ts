@@ -83,12 +83,12 @@ const testConnection = async (apiKey: string, secretKey: string): Promise<boolea
         return false;
     }
 
-    logService.log('BINANCE', 'Attempting to test Binance API connection...');
+    logService.log('BINANCE_API', 'Attempting to test Binance API connection...');
     try {
         const params = new URLSearchParams();
         const accountInfo = await signedRequest('/api/v3/account', params, apiKey, secretKey);
         if (accountInfo && accountInfo.canTrade) {
-            logService.log('BINANCE', 'Connection successful. Account is ready.');
+            logService.log('BINANCE_API', 'Connection successful. Account is ready.');
             return true;
         } else {
             throw new Error('Received a valid response, but account permissions are incorrect.');

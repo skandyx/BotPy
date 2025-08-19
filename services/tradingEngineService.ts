@@ -183,7 +183,7 @@ class TradingEngine {
                         case TradingMode.VIRTUAL:
                         case TradingMode.REAL_PAPER:
                             if (this.currentMode === TradingMode.REAL_PAPER) {
-                                logService.log('BINANCE', `[REAL PAPER] Simulating BUY order for ${pair.symbol} @ ${currentPriceData.price}. NO REAL FUNDS USED.`);
+                                logService.log('TRADE', `[REAL PAPER] Simulating BUY order for ${pair.symbol} @ ${currentPriceData.price}. NO REAL FUNDS USED.`);
                             }
                             const newTrade = await api.openTrade(pair.symbol, currentPriceData.price, this.currentMode);
                             if (newTrade) {
