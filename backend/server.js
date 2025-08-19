@@ -363,13 +363,38 @@ const klineFeeder = {
 const runScannerLoop = async () => {
     log("SCANNER", "Starting new market scan cycle...");
     try {
-        const scannedPairs = await scannerService.runScan(botState.settings);
-        botState.scannerCache = scannedPairs;
-        log("SCANNER", `Market scan finished. Found ${scannedPairs.length} viable pairs.`);
-        const symbolsToWatch = new Set([...scannedPairs.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
+        const newScannedPairs = await scannerService.runScan(botState.settings);
+
+        // Create maps for efficient merging
+        const newPairsMap = new Map(newScannedPairs.map(p => [p.symbol, p]));
+        const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
+        const mergedCache = [];
+
+        // Iterate over the new list of pairs from the scan
+        for (const [symbol, newPair] of newPairsMap.entries()) {
+            const existingPair = currentCacheMap.get(symbol);
+            if (existingPair) {
+                // Pair already exists. Merge data.
+                // Keep the real-time data from the existing pair (rsi, adx, price, score, etc.)
+                // and update it with the long-term data from the new scan.
+                existingPair.trend_4h = newPair.trend_4h;
+                existingPair.marketRegime = newPair.marketRegime;
+                existingPair.volume = newPair.volume; // Volume also updates periodically
+                mergedCache.push(existingPair);
+            } else {
+                // This is a brand new pair that wasn't in the cache before.
+                mergedCache.push(newPair);
+            }
+        }
+        
+        botState.scannerCache = mergedCache;
+        log("SCANNER", `Market scan finished. Merged results. Now monitoring ${botState.scannerCache.length} pairs.`);
+
+        const symbolsToWatch = new Set([...botState.scannerCache.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
         const symbolsArray = Array.from(symbolsToWatch);
         priceFeeder.updateSubscriptions(symbolsArray);
         klineFeeder.updateSubscriptions(symbolsArray);
+
     } catch (error) {
         log("ERROR", `Error during scanner run: ${error.message}`);
     }
