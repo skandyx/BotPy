@@ -5,6 +5,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { websocketService } from '../../services/websocketService';
 import { useAuth } from '../../contexts/AuthContext';
 import { logService } from '../../services/logService';
+import { api } from '../../services/mockApi';
+import { scannerStore } from '../../services/scannerStore';
+
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setConnectionStatus } = useWebSocket();
@@ -13,10 +16,26 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     // Link the websocket service status to the React context
     websocketService.onStatusChange(setConnectionStatus);
+    
+    let scannerInterval: number | null = null;
 
     if (isAuthenticated) {
         logService.log('INFO', "User is authenticated, connecting to backend WebSocket...");
         websocketService.connect();
+        
+        // Start polling for scanner data
+        const fetchScannerData = async () => {
+            try {
+                const pairs = await api.fetchScannedPairs();
+                scannerStore.updatePairList(pairs);
+            } catch (error) {
+                logService.log('ERROR', `Failed to fetch scanner data: ${error}`);
+            }
+        };
+        
+        fetchScannerData(); // Initial fetch
+        scannerInterval = window.setInterval(fetchScannerData, 10000); // Poll every 10 seconds
+
     } else {
         logService.log('INFO', "User is not authenticated, disconnecting WebSocket.");
         websocketService.disconnect();
@@ -25,6 +44,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return () => {
       // General cleanup when Layout unmounts (e.g., on logout)
       logService.log('INFO', "Layout unmounting, ensuring WebSocket is disconnected.");
+      if (scannerInterval) clearInterval(scannerInterval);
       websocketService.disconnect();
     };
   }, [isAuthenticated, setConnectionStatus]);

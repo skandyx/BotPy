@@ -19,7 +19,7 @@ let watchedSymbols = new Set<string>();
 const getWebSocketURL = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    return `${protocol}//${host}`;
+    return `${protocol}//${host}/ws`;
 };
 
 const connect = () => {

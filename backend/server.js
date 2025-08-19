@@ -23,6 +23,9 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
+// --- Trust proxy (Nginx) ---
+app.set('trust proxy', 1);
+
 // --- Session Management ---
 app.use(session({
     secret: process.env.APP_PASSWORD || 'default_session_secret',
@@ -198,7 +201,7 @@ const priceFeeder = {
 
         if (needsReconnect) {
             this.subscribedSymbols = newSet;
-            console.log(`[PriceFeeder] Subscriptions updated. Reconnecting to Binance.`);
+            console.log(`[PriceFeeder] Subscriptions updated with ${newSet.size} symbols. Reconnecting to Binance.`);
             this.connect();
         }
     }
@@ -207,9 +210,76 @@ const priceFeeder = {
 // --- Scanner Logic ---
 const runScanner = async () => {
     console.log("Running market scanner...");
-    // ... (logic from original file) ...
-    botState.scannerCache = { data: [], timestamp: Date.now() }; // Update state
-    await saveData('state');
+    try {
+        const response = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+        if (!response.ok) {
+            throw new Error(`Binance API error! status: ${response.status}`);
+        }
+        const allTickers = await response.json();
+        
+        const excluded = botState.settings.EXCLUDED_PAIRS.split(',').map(p => p.trim());
+        
+        const filteredTickers = allTickers.filter(ticker => 
+            ticker.symbol.endsWith('USDT') &&
+            !excluded.includes(ticker.symbol) &&
+            (parseFloat(ticker.quoteVolume) > botState.settings.MIN_VOLUME_USD)
+        );
+
+        console.log(`Found ${filteredTickers.length} pairs after volume and exclusion filters.`);
+
+        const scannedPairs = [];
+        for (const ticker of filteredTickers) {
+            const klinesResponse = await fetch(`https://api.binance.com/api/v3/klines?symbol=${ticker.symbol}&interval=4h&limit=200`);
+            const klines = await klinesResponse.json();
+
+            if (klines.length < 200) continue; // Not enough data
+
+            const closes = klines.map(k => parseFloat(k[4]));
+            const highs = klines.map(k => parseFloat(k[2]));
+            const lows = klines.map(k => parseFloat(k[3]));
+            
+            const sma50 = SMA.calculate({ period: 50, values: closes });
+            const sma200 = SMA.calculate({ period: 200, values: closes });
+            const adxResult = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+
+            const lastSma50 = sma50[sma50.length - 1];
+            const lastSma200 = sma200[sma200.length - 1];
+            const lastAdx = adxResult[adxResult.length - 1]?.adx || 0;
+            
+            let marketRegime = 'NEUTRAL';
+            if (lastSma50 > lastSma200) marketRegime = 'UPTREND';
+            else if (lastSma50 < lastSma200) marketRegime = 'DOWNTREND';
+
+            let trend4h = 'NEUTRAL';
+            if (lastAdx > 25) {
+                trend4h = lastSma50 > lastSma200 ? 'UP' : 'DOWN'; // Simplified trend based on MAs
+            }
+
+            scannedPairs.push({
+                symbol: ticker.symbol,
+                volume: parseFloat(ticker.quoteVolume),
+                price: parseFloat(ticker.lastPrice),
+                priceDirection: 'neutral',
+                trend: 'NEUTRAL', // 1m trend will be calculated elsewhere
+                trend_4h: trend4h,
+                marketRegime: marketRegime,
+                rsi: 50, // Placeholder
+                adx: 0, // Placeholder
+                score: 'HOLD', // Placeholder
+                volatility: 0, // Placeholder
+            });
+        }
+        
+        botState.scannerCache = { data: scannedPairs, timestamp: Date.now() };
+        console.log(`Scanner finished. Found ${scannedPairs.length} viable pairs.`);
+        
+        // Update price feeder with the new list of symbols
+        const symbolsToWatch = scannedPairs.map(p => p.symbol);
+        priceFeeder.updateSubscriptions(symbolsToWatch);
+
+    } catch (error) {
+        console.error("Error during scanner run:", error);
+    }
 };
 
 // --- Trading Engine ---
@@ -234,29 +304,15 @@ const tradingEngine = {
     },
     tick: async function() {
         if (!botState.isRunning) return;
-        await this.checkExits();
-        await this.checkEntries();
+        // Mock logic for now
+        // await this.checkExits();
+        // await this.checkEntries();
     },
-    checkExits: async function() {
-        // ... (logic from frontend tradingEngineService) ...
-    },
-    checkEntries: async function() {
-        // ... (logic from frontend tradingEngineService) ...
-    },
-    openTrade: async function(symbol, price) {
-        // ... (logic from /api/open-trade) ...
-        broadcast({ type: 'POSITIONS_UPDATED' });
-        await saveData('state');
-    },
-    closeTrade: async function(tradeId, currentPrice) {
-        // ... (logic from /api/close-trade) ...
-        broadcast({ type: 'POSITIONS_UPDATED' });
-        await saveData('state');
-    }
+    // ... other trading engine methods
 };
 
 
-// --- Auth Middleware & API Endpoints (rewritten for new state management) ---
+// --- Auth Middleware & API Endpoints ---
 const isAuthenticated = (req, res, next) => {
     if (req.session.isAuthenticated) return next();
     res.status(401).json({ message: 'Unauthorized' });
@@ -279,8 +335,22 @@ app.post('/api/settings', isAuthenticated, async (req, res) => {
     await saveData('settings');
     res.json({ success: true });
 });
+
+app.get('/api/scanner', isAuthenticated, (req, res) => {
+    // Add latest prices to the scanner data before sending
+    const dataWithPrices = botState.scannerCache.data.map(pair => {
+        const latestPrice = priceFeeder.latestPrices.get(pair.symbol);
+        return {
+            ...pair,
+            price: latestPrice || pair.price, // Use latest price if available
+        };
+    });
+    res.json(dataWithPrices);
+});
+
 app.get('/api/positions', isAuthenticated, (req, res) => res.json(botState.activePositions));
 app.get('/api/history', isAuthenticated, (req, res) => res.json(botState.tradeHistory));
+
 app.get('/api/status', isAuthenticated, (req, res) => {
     res.json({
         balance: botState.balance,
@@ -303,13 +373,47 @@ app.get('/api/performance-stats', isAuthenticated, (req, res) => {
     });
 });
 app.post('/api/close-trade/:id', isAuthenticated, async (req, res) => {
+    // Mock implementation
     const tradeId = parseInt(req.params.id, 10);
-    const trade = botState.activePositions.find(t => t.id === tradeId);
-    if (!trade) return res.status(404).json({ message: 'Trade not found' });
-    const currentPrice = priceFeeder.latestPrices.get(trade.symbol) || trade.entry_price;
-    const closedTrade = await tradingEngine.closeTrade(tradeId, currentPrice);
+     const index = botState.activePositions.findIndex(t => t.id === tradeId);
+    if (index === -1) return res.status(404).json({ message: 'Trade not found' });
+    const [closedTrade] = botState.activePositions.splice(index, 1);
+    botState.tradeHistory.push(closedTrade);
+    await saveData('state');
     res.json(closedTrade);
 });
+
+app.post('/api/test-connection', isAuthenticated, async (req, res) => {
+    const { apiKey, secretKey } = req.body;
+    if (!apiKey || !secretKey) {
+        return res.status(400).json({ success: false, message: 'API Key and Secret Key are required.' });
+    }
+    
+    try {
+        const timestamp = Date.now();
+        const queryString = `timestamp=${timestamp}`;
+        const signature = crypto.createHmac('sha256', secretKey).update(queryString).digest('hex');
+        
+        const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'X-MBX-APIKEY': apiKey }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            res.json({ success: true, message: 'Connection successful!' });
+        } else {
+            res.status(response.status).json({ success: false, message: `Binance API Error: ${data.msg} (Code: ${data.code})` });
+        }
+    } catch (error) {
+        console.error("Test connection error:", error);
+        res.status(500).json({ success: false, message: 'Failed to connect to Binance API.' });
+    }
+});
+
 
 // Bot Control Endpoints
 app.get('/api/bot/status', isAuthenticated, (req, res) => res.json({ isRunning: botState.isRunning }));
@@ -322,15 +426,13 @@ app.post('/api/bot/stop', isAuthenticated, (req, res) => {
     res.json({ success: true, message: 'Bot stopped' });
 });
 
-// ... other endpoints like test-connection, clear-data
-
 // --- Startup ---
 server.listen(port, async () => {
     await loadData();
     console.log(`Backend server running on http://localhost:${port}`);
     // Start scanner loop
-    // setInterval(runScanner, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
-    // runScanner();
+    setInterval(runScanner, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    await runScanner();
     if (botState.isRunning) {
         tradingEngine.start();
     }
