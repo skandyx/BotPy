@@ -14,9 +14,17 @@ export class ScannerService {
         try {
             // Step 1: Discover pairs from CoinGecko
             const coingeckoPairs = await this.discoverPairsFromCoinGecko(settings);
+            if (coingeckoPairs.length === 0) {
+                this.log('WARN', 'discoverPairsFromCoinGecko returned 0 pairs. Ending scan cycle early.');
+                return [];
+            }
 
             // Step 2: Filter with Binance volume data
             const binancePairs = await this.filterPairsWithBinanceVolume(coingeckoPairs, settings);
+            if (binancePairs.length === 0) {
+                this.log('WARN', 'No pairs remained after filtering with Binance volume data.');
+                return [];
+            }
             
             this.log('SCANNER', `Found ${binancePairs.length} pairs after volume and exclusion filters.`);
 
@@ -40,7 +48,7 @@ export class ScannerService {
             return analyzedPairs;
 
         } catch (error) {
-            this.log('ERROR', `Scanner cycle failed: ${error.message}`);
+            this.log('ERROR', `Scanner cycle failed unexpectedly: ${error.stack}`);
             return [];
         }
     }
@@ -56,51 +64,74 @@ export class ScannerService {
             headers['x-cg-pro-api-key'] = settings.COINGECKO_API_KEY;
         }
 
-        const response = await fetch(url, { headers });
-        if (!response.ok) throw new Error(`CoinGecko API error! status: ${response.status}`);
-        const markets = await response.json();
-        
-        const usdtPairs = markets
-            .filter(m => m.symbol.toLowerCase() !== 'usdt' && m.symbol.toLowerCase() !== 'usd')
-            .map(m => ({
-                symbol: `${m.symbol.toUpperCase()}USDT`,
-                price: m.current_price, // Initial price from CoinGecko
-            }));
-        
-        this.log('COINGECKO', `Discovered ${usdtPairs.length} potential USDT pairs.`);
-        return usdtPairs;
+        try {
+            const response = await fetch(url, { headers });
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`CoinGecko API error! status: ${response.status} - ${errorBody}`);
+            }
+            const markets = await response.json();
+
+            if (!Array.isArray(markets)) {
+                throw new Error('CoinGecko API did not return an array.');
+            }
+            
+            const usdtPairs = markets
+                .filter(m => m.symbol.toLowerCase() !== 'usdt' && m.symbol.toLowerCase() !== 'usd')
+                .map(m => ({
+                    symbol: `${m.symbol.toUpperCase()}USDT`,
+                    price: m.current_price, // Initial price from CoinGecko
+                }));
+            
+            this.log('COINGECKO', `Discovered ${usdtPairs.length} potential USDT pairs.`);
+            return usdtPairs;
+        } catch (error) {
+            this.log('ERROR', `Failed to fetch or parse from CoinGecko: ${error.message}`);
+            return [];
+        }
     }
 
     async filterPairsWithBinanceVolume(pairs, settings) {
         this.log('BINANCE_API', 'Fetching 24hr ticker data from Binance for volume filtering...');
-        const response = await fetch('https://api.binance.com/api/v3/ticker/24hr');
-        if (!response.ok) throw new Error(`Binance API error! status: ${response.status}`);
-        const allTickers = await response.json();
-
-        const binanceVolumeMap = new Map();
-        allTickers.forEach(t => {
-            if(t.symbol.endsWith('USDT')) {
-                binanceVolumeMap.set(t.symbol, {
-                    volume: parseFloat(t.quoteVolume),
-                    price: parseFloat(t.lastPrice)
-                });
+        try {
+            const response = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`Binance API error! status: ${response.status} - ${errorBody}`);
             }
-        });
-
-        const excluded = settings.EXCLUDED_PAIRS.split(',').map(p => p.trim());
-        const result = [];
-
-        for (const pair of pairs) {
-            const binanceData = binanceVolumeMap.get(pair.symbol);
-            if (binanceData && binanceData.volume > settings.MIN_VOLUME_USD && !excluded.includes(pair.symbol)) {
-                result.push({
-                    symbol: pair.symbol,
-                    volume: binanceData.volume,
-                    price: binanceData.price,
-                });
+            const allTickers = await response.json();
+            if (!Array.isArray(allTickers)) {
+                throw new Error('Binance API did not return an array for 24hr ticker.');
             }
+
+            const binanceVolumeMap = new Map();
+            allTickers.forEach(t => {
+                if(t.symbol.endsWith('USDT')) {
+                    binanceVolumeMap.set(t.symbol, {
+                        volume: parseFloat(t.quoteVolume),
+                        price: parseFloat(t.lastPrice)
+                    });
+                }
+            });
+
+            const excluded = settings.EXCLUDED_PAIRS.split(',').map(p => p.trim());
+            const result = [];
+
+            for (const pair of pairs) {
+                const binanceData = binanceVolumeMap.get(pair.symbol);
+                if (binanceData && binanceData.volume > settings.MIN_VOLUME_USD && !excluded.includes(pair.symbol)) {
+                    result.push({
+                        symbol: pair.symbol,
+                        volume: binanceData.volume,
+                        price: binanceData.price,
+                    });
+                }
+            }
+            return result;
+        } catch (error) {
+            this.log('ERROR', `Failed to fetch or parse from Binance ticker API: ${error.message}`);
+            return [];
         }
-        return result;
     }
     
     async analyzePair(symbol, settings) {
@@ -159,8 +190,13 @@ export class ScannerService {
             if (klines.length > 0) {
                 lastTimestamp = klines[klines.length - 1].timestamp;
             }
-        } catch {
-            // File doesn't exist, will fetch full history
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                // File doesn't exist, this is normal on first run for a symbol.
+            } else {
+                this.log('WARN', `Could not read or parse kline file ${symbol}.json. Will refetch all data. Error: ${err.message}`);
+                klines = []; // Reset klines if file is corrupt
+            }
         }
 
         const binanceKlines = await this.fetchKlinesFromBinance(symbol, lastTimestamp);
@@ -196,8 +232,20 @@ export class ScannerService {
             url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&startTime=${startTime + 1}`;
         }
         
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol} from Binance`);
-        return response.json();
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`Failed to fetch klines for ${symbol} from Binance. Status: ${response.status} - ${errorBody}`);
+            }
+            const klines = await response.json();
+            if (!Array.isArray(klines)) {
+                throw new Error(`Binance klines response for ${symbol} is not an array.`);
+            }
+            return klines;
+        } catch (error) {
+            this.log('WARN', `Could not fetch klines for ${symbol}: ${error.message}`);
+            return [];
+        }
     }
 }

@@ -18,7 +18,11 @@ const port = process.env.PORT || 8080;
 const server = http.createServer(app);
 
 app.use(cors({
-    origin: '*',
+    origin: (origin, callback) => {
+        // For development (e.g., Postman) or same-origin, origin is undefined.
+        // In production, you might want to restrict this to your frontend's domain.
+        callback(null, true);
+    },
     credentials: true,
 }));
 app.use(bodyParser.json());
@@ -40,9 +44,9 @@ app.use(session({
 const wss = new WebSocketServer({ noServer: true });
 const clients = new Set();
 server.on('upgrade', (request, socket, head) => {
-    const { pathname } = new URL(request.url, `http://${request.headers.host}`);
+    const url = new URL(request.url, `http://${request.headers.host}`);
     
-    if (pathname === '/ws') {
+    if (url.pathname === '/ws') {
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
@@ -529,7 +533,7 @@ app.post('/api/bot/stop', isAuthenticated, (req, res) => {
 
 // --- Startup ---
 let scannerInterval;
-server.listen(port, async () => {
+const startServer = async () => {
     await loadData();
     log('INFO', `Backend server running on http://localhost:${port}`);
     scannerInterval = setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
@@ -537,4 +541,11 @@ server.listen(port, async () => {
     if (botState.isRunning) {
         tradingEngine.start();
     }
+};
+
+server.listen(port, () => {
+    startServer().catch(err => {
+        log('ERROR', `FATAL: Server failed to start: ${err.stack}`);
+        process.exit(1);
+    });
 });
