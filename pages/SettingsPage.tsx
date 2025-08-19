@@ -57,6 +57,7 @@ const SettingsPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
+    const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
     const [isClearing, setIsClearing] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
     const [isClearDataModalOpen, setIsClearDataModalOpen] = useState(false);
@@ -135,6 +136,25 @@ const SettingsPage: React.FC = () => {
         }
     };
 
+    const handleTestCoinGeckoConnection = async () => {
+        if (!settings || !settings.COINGECKO_API_KEY) {
+            setSaveMessage('Please enter a CoinGecko API key first.');
+            setTimeout(() => setSaveMessage(''), 3000);
+            return;
+        }
+        setIsTestingCoinGecko(true);
+        setSaveMessage('');
+        try {
+            const result = await api.testCoinGeckoConnection(settings.COINGECKO_API_KEY);
+            setSaveMessage(result.message);
+        } catch (error: any) {
+            setSaveMessage(error.message || 'CoinGecko connection failed.');
+        } finally {
+            setIsTestingCoinGecko(false);
+            setTimeout(() => setSaveMessage(''), 5000);
+        }
+    };
+
     const handleChangePassword = async (e: React.FormEvent) => {
         e.preventDefault();
         if (newPassword !== confirmPassword) {
@@ -162,6 +182,8 @@ const SettingsPage: React.FC = () => {
     };
 
     if (isLoading || !settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
+    
+    const isAnyActionInProgress = isSaving || isClearing || isTesting || isTestingCoinGecko;
 
     return (
         <div className="space-y-6 max-w-4xl mx-auto">
@@ -169,7 +191,7 @@ const SettingsPage: React.FC = () => {
                 <h2 className="text-2xl font-bold text-white">Bot Settings</h2>
                 <div className="flex items-center space-x-4">
                      {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('cleared') || saveMessage.includes('successful') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
-                    <button onClick={handleSave} disabled={isSaving || isClearing || isTesting} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isSaving ? 'Saving...' : 'Save All Settings'}
                     </button>
                 </div>
@@ -200,7 +222,29 @@ const SettingsPage: React.FC = () => {
                     <SettingsField id="COINGECKO_SYNC_SECONDS" label="Scanner Sync (seconds)" type="number" formState={settings} handleChange={handleChange} />
                     <SettingsField id="LOSS_COOLDOWN_HOURS" label="Loss Cooldown (Hours)" type="number" formState={settings} handleChange={handleChange} />
                      <div className="lg:col-span-2">
-                        <SettingsField id="COINGECKO_API_KEY" label="CoinGecko API Key" formState={settings} handleChange={handleChange} />
+                        <div>
+                            <label htmlFor="COINGECKO_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                                <span>CoinGecko API Key</span>
+                                {tooltips['COINGECKO_API_KEY'] && <Tooltip text={tooltips['COINGECKO_API_KEY']} />}
+                            </label>
+                            <div className="mt-1 flex rounded-md shadow-sm">
+                                <input
+                                    type="text"
+                                    id="COINGECKO_API_KEY"
+                                    value={settings.COINGECKO_API_KEY}
+                                    onChange={(e) => handleChange('COINGECKO_API_KEY', e.target.value)}
+                                    className="block w-full min-w-0 flex-1 rounded-none rounded-l-md border-[#3e4451] bg-[#0c0e12] focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleTestCoinGeckoConnection}
+                                    disabled={isAnyActionInProgress || !settings.COINGECKO_API_KEY}
+                                    className="inline-flex items-center rounded-r-md border border-l-0 border-[#3e4451] bg-gray-600 px-3 py-2 text-xs font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isTestingCoinGecko ? 'Testing...' : 'Test'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div className="md:col-span-2 lg:col-span-3">
                         <SettingsField id="EXCLUDED_PAIRS" label="Exclude Pairs (comma-separated)" formState={settings} handleChange={handleChange} />
@@ -239,7 +283,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                  </div>
                  <div className="mt-4 flex justify-end">
-                    <button onClick={handleTestConnection} disabled={isTesting} className="inline-flex justify-center rounded-md border border-transparent bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                    <button onClick={handleTestConnection} disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY} className="inline-flex justify-center rounded-md border border-transparent bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
                  </div>
@@ -255,14 +299,14 @@ const SettingsPage: React.FC = () => {
                         <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white" />
                     </div>
                     <div className="pt-2">
-                        <button type="submit" disabled={isSaving} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                        <button type="submit" disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                             {isSaving ? 'Updating...' : 'Update Password'}
                         </button>
                     </div>
                 </form>
 
                 <div className="mt-6 pt-6 border-t border-[#2b2f38]">
-                    <button onClick={() => setIsClearDataModalOpen(true)} disabled={isClearing} className="inline-flex justify-center rounded-md border border-red-500 py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                    <button onClick={() => setIsClearDataModalOpen(true)} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-red-500 py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isClearing ? 'Clearing...' : 'Clear All Trade Data'}
                     </button>
                 </div>

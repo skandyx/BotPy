@@ -106,6 +106,12 @@ export const api = {
             body: JSON.stringify({ apiKey, secretKey })
         });
     },
+    testCoinGeckoConnection: async (apiKey: string): Promise<{ success: boolean, message: string }> => {
+        return apiFetch('/test-coingecko', {
+            method: 'POST',
+            body: JSON.stringify({ apiKey })
+        });
+    },
 
     // Bot Control
     getBotRunStatus: async (): Promise<{ isRunning: boolean }> => {

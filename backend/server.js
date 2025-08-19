@@ -521,6 +521,30 @@ app.post('/api/test-connection', isAuthenticated, async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to connect to Binance API.' });
     }
 });
+app.post('/api/test-coingecko', isAuthenticated, async (req, res) => {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+        return res.status(400).json({ success: false, message: 'CoinGecko API Key is required.' });
+    }
+    log('COINGECKO', 'Testing CoinGecko API connection...');
+    try {
+        const url = `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (response.ok && data.bitcoin && data.bitcoin.usd) {
+            log('COINGECKO', 'CoinGecko API connection successful!');
+            res.json({ success: true, message: 'CoinGecko API connection successful!' });
+        } else {
+            const errorMessage = data.error || `Received status ${response.status}. Invalid key or API issue.`;
+            log('ERROR', `CoinGecko API Error: ${errorMessage}`);
+            res.status(response.status).json({ success: false, message: `CoinGecko API Error: ${errorMessage}` });
+        }
+    } catch (error) {
+        log("ERROR", `CoinGecko test connection failed: ${error.message}`);
+        res.status(500).json({ success: false, message: 'Failed to connect to CoinGecko API.' });
+    }
+});
 app.get('/api/bot/status', isAuthenticated, (req, res) => res.json({ isRunning: botState.isRunning }));
 app.post('/api/bot/start', isAuthenticated, (req, res) => {
     tradingEngine.start();
