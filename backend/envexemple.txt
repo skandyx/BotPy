@@ -51,8 +51,8 @@ MIN_VOLUME_USD=400000000
 # La volatilité de prix minimum qu'une paire doit avoir pour être considérée.
 MIN_VOLATILITY_PCT=0.5
 
-# À quelle fréquence (en secondes) le bot doit-il rafraîchir la liste des paires depuis CoinGecko.
-COINGECKO_SYNC_SECONDS=900
+# À quelle fréquence (en secondes) le bot doit-il exécuter un scan complet du marché.
+COINGECKO_SYNC_SECONDS=60
 
 # Une liste de paires à ignorer, séparées par des virgules (ex: USDCUSDT,FDUSDUSDT).
 EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"

@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ScannedPair } from '../types';
 import Spinner from '../components/common/Spinner';
-import { PriceUpdate } from '../services/websocketService';
-import { priceStore } from '../services/priceStore';
 import { scannerStore } from '../services/scannerStore';
 
 type SortableKeys = keyof ScannedPair;
@@ -57,57 +55,28 @@ const ScannerPage: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(() => scannerStore.getScannedPairs().length === 0);
 
-  const handlePriceUpdate = useCallback((update: PriceUpdate) => {
-    setPairs(prevPairs => 
-      prevPairs.map(p => {
-        if (p.symbol === update.symbol) {
-          const priceDirection = update.price > p.price ? 'up' : (update.price < p.price ? 'down' : p.priceDirection);
-          return { ...p, price: update.price, priceDirection };
-        }
-        return p;
-      })
-    );
-  }, []);
-
-  const handleScannerUpdate = useCallback((updatedPairs: ScannedPair[]) => {
-    setPairs(prevPairs => {
-        const prevPairsMap = new Map(prevPairs.map(p => [p.symbol, p]));
-        return updatedPairs.map(newPair => {
-            const existingPair = prevPairsMap.get(newPair.symbol);
-            if (existingPair) {
-                // Pair exists. Use new scanner data (rsi, score, etc.)
-                // BUT preserve the most recent real-time price and its direction.
-                return {
-                    ...newPair,
-                    price: existingPair.price,
-                    priceDirection: existingPair.priceDirection,
-                };
-            }
-            // This is a new pair that wasn't in the state before.
-            return newPair;
-        });
-    });
-
-    if (isInitialLoading) {
-        setIsInitialLoading(false);
-    }
-  }, [isInitialLoading]);
-
-
   useEffect(() => {
-    const unsubscribeScanner = scannerStore.subscribe(handleScannerUpdate);
-    const unsubscribePrice = priceStore.subscribe(handlePriceUpdate);
-
-    if (isInitialLoading && scannerStore.getScannedPairs().length > 0) {
+    const handleStoreUpdate = (updatedPairs: ScannedPair[]) => {
+      setPairs(updatedPairs);
+      if (isInitialLoading && updatedPairs.length > 0) {
         setIsInitialLoading(false);
-        setPairs(scannerStore.getScannedPairs());
+      }
+    };
+
+    // Subscribe to the single source of truth: the scannerStore.
+    const unsubscribe = scannerStore.subscribe(handleStoreUpdate);
+
+    // Handle the edge case where data is already loaded in the store when the component mounts.
+    const initialPairs = scannerStore.getScannedPairs();
+    if (isInitialLoading && initialPairs.length > 0) {
+      setPairs(initialPairs);
+      setIsInitialLoading(false);
     }
 
     return () => {
-        unsubscribeScanner();
-        unsubscribePrice();
+      unsubscribe();
     };
-  }, [handlePriceUpdate, handleScannerUpdate, isInitialLoading]);
+  }, [isInitialLoading]);
 
 
   const requestSort = (key: SortableKeys) => {

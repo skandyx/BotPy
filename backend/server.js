@@ -125,7 +125,7 @@ const loadData = async () => {
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 400000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
             COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
-            COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 900,
+            COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 60,
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
             USE_MULTI_TIMEFRAME_CONFIRMATION: process.env.USE_MULTI_TIMEFRAME_CONFIRMATION === 'true',
@@ -255,10 +255,11 @@ const klineFeeder = {
 
 // --- Main Scanner Loop ---
 const runScannerLoop = async () => {
-    log("SCANNER", "Running main scanner task...");
+    log("SCANNER", "Starting new market scan cycle...");
     try {
         const scannedPairs = await scannerService.runScan(botState.settings);
         botState.scannerCache = scannedPairs;
+        log("SCANNER", `Market scan finished. Found ${scannedPairs.length} viable pairs.`);
         const symbolsToWatch = new Set([...scannedPairs.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
         const symbolsArray = Array.from(symbolsToWatch);
         priceFeeder.updateSubscriptions(symbolsArray);
@@ -439,6 +440,10 @@ app.post('/api/settings', isAuthenticated, async (req, res) => {
     botState.settings = { ...botState.settings, ...req.body };
     await saveData('settings');
     log('INFO', 'Bot settings have been updated.');
+    
+    // Trigger an immediate scan after saving settings
+    runScannerLoop();
+
     // If sync interval changed, we need to restart the scanner loop
     if (oldSyncSeconds !== botState.settings.COINGECKO_SYNC_SECONDS) {
         log('INFO', 'Scanner interval updated. Restarting scanner loop.');

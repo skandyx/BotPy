@@ -53,26 +53,40 @@ class ScannerStore {
         
         const newSymbols = new Set(newPairs.map(p => p.symbol));
 
-        const newPairsMap = new Map<string, ScannedPair>();
-        newPairs.forEach(pair => {
-            // Preserve the price direction from the old state if it exists, to prevent UI flicker
-            const oldPair = this.pairs.get(pair.symbol);
-            const updatedPair = { ...pair };
-            if (oldPair) {
-                updatedPair.priceDirection = oldPair.priceDirection;
+        // Merge new data into existing pairs
+        newPairs.forEach(newPair => {
+            const existingPair = this.pairs.get(newPair.symbol);
+            if (existingPair) {
+                // Pair exists. Update only the data that comes from the periodic scan.
+                // Do NOT overwrite real-time data like price, rsi, score, etc.
+                existingPair.volume = newPair.volume;
+                existingPair.trend_4h = newPair.trend_4h;
+                existingPair.marketRegime = newPair.marketRegime;
+            } else {
+                // This is a new pair. Add it to the store.
+                this.pairs.set(newPair.symbol, newPair);
             }
-            newPairsMap.set(pair.symbol, updatedPair);
         });
-        this.pairs = newPairsMap;
 
-        // Clean up kline data for symbols that are no longer tracked
-        for (const symbol of this.klineData.keys()) {
+        // Remove pairs that are no longer in the new list from the scan
+        for (const symbol of this.pairs.keys()) {
             if (!newSymbols.has(symbol)) {
-                this.klineData.delete(symbol);
+                this.pairs.delete(symbol);
+                this.klineData.delete(symbol); // Clean up kline data for removed pairs
             }
         }
         
         this.notify();
+    }
+
+    public handlePriceUpdate(update: { symbol: string, price: number }): void {
+        const pair = this.pairs.get(update.symbol);
+        if (pair) {
+            const oldPrice = pair.price;
+            pair.price = update.price;
+            pair.priceDirection = update.price > oldPrice ? 'up' : (update.price < oldPrice ? 'down' : pair.priceDirection || 'neutral');
+            this.notify();
+        }
     }
     
     public getScannedPairs(): ScannedPair[] {

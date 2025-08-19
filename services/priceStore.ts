@@ -1,4 +1,5 @@
 import { PriceUpdate } from './websocketService';
+import { scannerStore } from './scannerStore';
 
 type PriceStoreSubscriber = (update: PriceUpdate) => void;
 
@@ -18,6 +19,9 @@ class PriceStore {
 
     public updatePrice(update: PriceUpdate): void {
         this.prices.set(update.symbol, update);
+        // Notify the scanner store to merge the real-time price
+        scannerStore.handlePriceUpdate(update);
+        // Notify direct subscribers (like positionService)
         this.subscribers.forEach(callback => callback(update));
     }
 
