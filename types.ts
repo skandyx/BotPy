@@ -77,7 +77,7 @@ export interface BotStatus {
 
 export interface LogEntry {
     timestamp: string;
-    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'GECKO' | 'BINANCE';
+    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'GECKO' | 'BINANCE' | 'API_CLIENT';
     message: string;
 }
 

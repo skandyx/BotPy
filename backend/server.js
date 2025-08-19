@@ -1,32 +1,37 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
+import path from 'path';
 import dotenv from 'dotenv';
-import jwt from 'jsonwebtoken';
+import session from 'express-session';
 
 // --- Basic Setup ---
-// Correctly load .env file from the current directory (backend/)
 dotenv.config();
 const app = express();
 const port = process.env.PORT || 8080;
 
-app.use(cors());
+app.use(cors({
+    origin: '*', // In production, you might want to restrict this to your frontend's domain
+    credentials: true,
+}));
 app.use(bodyParser.json());
 
-// --- Mimic Frontend Services in Backend ---
-// This is a simplified backend. A real implementation would use a proper database.
-// For now, we persist settings to a JSON file.
-const SETTINGS_FILE_PATH = path.join(process.cwd(), 'backend', 'settings.json');
+// --- Session Management (Replaces JWT) ---
+app.use(session({
+    secret: process.env.APP_PASSWORD || 'default_session_secret', // Use a strong secret
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false } // Set to true if you're using HTTPS
+}));
 
-let activePositions = []; // In-memory
-let tradeHistory = []; // In-memory
-let balance = 10000; // In-memory
-let tradeIdCounter = 1;
-
+// --- Mock Backend State ---
+const SETTINGS_FILE_PATH = path.join(process.cwd(), 'settings.json');
 let settings = {};
+let activePositions = [];
+let tradeHistory = [];
+let balance = 10000;
+let tradeIdCounter = 1;
 
 // --- Helper Functions ---
 const loadSettings = async () => {
@@ -42,9 +47,9 @@ const loadSettings = async () => {
             POSITION_SIZE_PCT: parseFloat(process.env.POSITION_SIZE_PCT) || 2.0,
             TAKE_PROFIT_PCT: parseFloat(process.env.TAKE_PROFIT_PCT) || 4.0,
             STOP_LOSS_PCT: parseFloat(process.env.STOP_LOSS_PCT) || 2.0,
-            SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             USE_TRAILING_STOP_LOSS: process.env.USE_TRAILING_STOP_LOSS === 'true',
             TRAILING_STOP_LOSS_PCT: parseFloat(process.env.TRAILING_STOP_LOSS_PCT) || 1.5,
+            SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 400000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
             COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 900,
@@ -56,7 +61,7 @@ const loadSettings = async () => {
             BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
             BINANCE_SECRET_KEY: process.env.BINANCE_SECRET_KEY || '',
         };
-        await saveSettings(); // Create the file
+        await saveSettings();
     }
     balance = settings.INITIAL_VIRTUAL_BALANCE;
 };
@@ -70,159 +75,68 @@ const saveSettings = async () => {
     }
 };
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-default-super-secret-key-for-jwt-change-it';
+// --- Auth Middleware ---
+const isAuthenticated = (req, res, next) => {
+    if (req.session.isAuthenticated) {
+        return next();
+    }
+    res.status(401).json({ message: 'Unauthorized' });
+};
 
 // --- API Endpoints ---
-
-// Security
 app.post('/api/login', (req, res) => {
     const { password } = req.body;
     if (password === process.env.APP_PASSWORD) {
-        const token = jwt.sign({ user: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ success: true, token });
+        req.session.isAuthenticated = true;
+        res.json({ success: true, message: 'Login successful' });
     } else {
         res.status(401).json({ success: false, message: 'Invalid password' });
     }
 });
 
-app.post('/api/change-password', (req, res) => {
-    // This is a simplified implementation. In a real app, you would hash the password
-    // and might require the old password for verification.
-    // This also doesn't persist the password change on the .env file, which requires more complex file editing.
-    // For now, this is a placeholder to show the concept.
+app.post('/api/logout', (req, res) => {
+    req.session.destroy();
+    res.json({ success: true, message: 'Logged out' });
+});
+
+app.get('/api/check-session', (req, res) => {
+    res.json({ isAuthenticated: !!req.session.isAuthenticated });
+});
+
+app.post('/api/change-password', isAuthenticated, async (req, res) => {
     const { newPassword } = req.body;
     if (!newPassword || newPassword.length < 6) {
         return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
     }
-    // In a real app: update the .env file or a secure config store.
-    // process.env.APP_PASSWORD = newPassword;
-    console.log("Password change requested. In a real app, you would need to securely update the .env file and restart the server.");
-    res.json({ success: true, message: 'Password change endpoint reached. NOTE: For this version, password must be changed manually in the .env file.' });
+    // This is NOT secure for production. It's a placeholder.
+    // Changing .env requires restarting the process.
+    console.warn("SECURITY WARNING: Password change requested. In a production environment, this should be handled securely and the process should be restarted to load the new .env value.");
+    res.json({ success: true, message: 'Password change endpoint reached. NOTE: For this version, password must be changed manually in the .env file and the server restarted.' });
 });
 
-
-// Data fetching
-app.get('/api/settings', (req, res) => {
-    res.json(settings);
-});
-
-app.post('/api/settings', async (req, res) => {
+app.get('/api/settings', isAuthenticated, (req, res) => res.json(settings));
+app.post('/api/settings', isAuthenticated, async (req, res) => {
     settings = { ...settings, ...req.body };
     await saveSettings();
     res.json({ success: true });
 });
 
-app.get('/api/status', (req, res) => {
+app.get('/api/status', isAuthenticated, (req, res) => {
+    // This should be dynamic from the real trading engine in the future
     res.json({
-        balance: balance,
+        balance,
         positions: activePositions.length,
-        monitored_pairs: 0, // Mocked for now
-        top_pairs: [], // Mocked for now
+        monitored_pairs: 0, 
+        top_pairs: [],
         max_open_positions: settings.MAX_OPEN_POSITIONS
     });
 });
 
-app.get('/api/positions', (req, res) => {
-    res.json(activePositions);
-});
+app.get('/api/positions', isAuthenticated, (req, res) => res.json(activePositions));
+app.get('/api/history', isAuthenticated, (req, res) => res.json(tradeHistory));
 
-app.get('/api/history', (req, res) => {
-    res.json(tradeHistory);
-});
-
-app.get('/api/performance-stats', (req, res) => {
-    const winning_trades = tradeHistory.filter(t => (t.pnl || 0) > 0).length;
-    const total_pnl = tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0);
-    res.json({
-        total_trades: tradeHistory.length,
-        winning_trades,
-        losing_trades: tradeHistory.length - winning_trades,
-        total_pnl,
-        win_rate: (winning_trades / (tradeHistory.length || 1)) * 100,
-    });
-});
-
-
-// Actions
-app.post('/api/open-trade', (req, res) => {
-    const { symbol, price, mode } = req.body;
-
-    if (activePositions.length >= settings.MAX_OPEN_POSITIONS) {
-        return res.status(400).json({ success: false, message: 'Max open positions reached' });
-    }
-
-    const positionSize = balance * (settings.POSITION_SIZE_PCT / 100);
-
-    if (balance < positionSize) {
-        return res.status(400).json({ success: false, message: 'Insufficient balance' });
-    }
-
-    const quantity = positionSize / price;
-
-    const newTrade = {
-        id: tradeIdCounter++,
-        mode: mode,
-        symbol: symbol,
-        side: "BUY", // Mocking BUY side only for now
-        entry_price: price,
-        current_price: price,
-        quantity: quantity,
-        stop_loss: price * (1 - settings.STOP_LOSS_PCT / 100),
-        take_profit: price * (1 + settings.TAKE_PROFIT_PCT / 100),
-        highest_price_since_entry: price,
-        entry_time: new Date().toISOString(),
-        exit_time: undefined,
-        pnl: 0,
-        pnl_pct: 0,
-        status: "PENDING",
-    };
-    
-    // Simulate slippage
-    const slippageAmount = newTrade.entry_price * (settings.SLIPPAGE_PCT / 100);
-    newTrade.entry_price += slippageAmount;
-    newTrade.status = "FILLED";
-    
-    balance -= positionSize;
-    activePositions.push(newTrade);
-    
-    console.log(`[Trade Opened] ${newTrade.symbol} | Qty: ${newTrade.quantity.toFixed(4)} | Entry: ${newTrade.entry_price.toFixed(4)}`);
-    res.status(201).json(newTrade);
-});
-
-app.post('/api/close-trade/:id', (req, res) => {
-    const tradeId = parseInt(req.params.id, 10);
-    const tradeIndex = activePositions.findIndex(t => t.id === tradeId);
-    
-    if (tradeIndex === -1) {
-        return res.status(404).json({ success: false, message: 'Trade not found' });
-    }
-
-    const trade = activePositions[tradeIndex];
-    // This is a mock, in reality we'd get the current price from a live feed.
-    // Let's simulate a random-ish exit price for mock purposes
-    const priceMovement = (Math.random() - 0.45) * 0.1; // Random movement between -4.5% and +5.5%
-    const exitPrice = trade.entry_price * (1 + priceMovement); 
-
-    trade.exit_price = exitPrice;
-    trade.exit_time = new Date().toISOString();
-    trade.status = 'CLOSED';
-    const pnl = (trade.exit_price - trade.entry_price) * trade.quantity * (trade.side === "BUY" ? 1 : -1);
-    trade.pnl = pnl;
-    const entryValue = trade.entry_price * trade.quantity;
-    trade.pnl_pct = entryValue !== 0 ? (pnl / entryValue) * 100 : 0;
-
-    balance += (entryValue + pnl);
-    
-    activePositions.splice(tradeIndex, 1);
-    tradeHistory.push(trade);
-    
-    console.log(`[Trade Closed] ${trade.symbol} | PnL: ${pnl.toFixed(2)}`);
-    res.json(trade);
-});
-
-
-app.post('/api/clear-data', async (req, res) => {
-    await loadSettings(); // Reload settings to get the latest initial balance
+app.post('/api/clear-data', isAuthenticated, async (req, res) => {
+    await loadSettings(); 
     activePositions = [];
     tradeHistory = [];
     balance = settings.INITIAL_VIRTUAL_BALANCE;
@@ -232,19 +146,92 @@ app.post('/api/clear-data', async (req, res) => {
 });
 
 // Mock scanner for now
-app.get('/api/scanner', (req, res) => {
-    // This should eventually come from a real scanning process on the backend
-    // For now, returning an empty array is fine as the frontend is driven by another service.
+app.get('/api/scanner', isAuthenticated, (req, res) => {
     res.json([]);
 });
 
-// Test connection endpoint
-app.post('/api/test-connection', (req, res) => {
+app.get('/api/performance-stats', isAuthenticated, (req, res) => {
+    const winning_trades = tradeHistory.filter(t => (t.pnl || 0) > 0).length;
+    const total_pnl = tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const totalTrades = tradeHistory.length;
+    res.json({
+        total_trades: totalTrades,
+        winning_trades,
+        losing_trades: totalTrades - winning_trades,
+        total_pnl,
+        win_rate: totalTrades > 0 ? (winning_trades / totalTrades) * 100 : 0,
+    });
+});
+
+
+// MOCK Trade execution
+app.post('/api/open-trade', isAuthenticated, (req, res) => {
+    const { symbol, price, mode } = req.body;
+    
+    if (!symbol || typeof price !== 'number' || !mode) {
+        return res.status(400).json({ message: 'Missing required parameters for opening a trade.' });
+    }
+
+    const positionSize = balance * (settings.POSITION_SIZE_PCT / 100);
+
+    if (positionSize > balance) {
+        return res.status(400).json({ message: 'Insufficient balance to open trade.' });
+    }
+
+    const quantity = positionSize / price;
+    
+    // Simulate slippage for entry price
+    const entryPriceWithSlippage = price * (1 + (settings.SLIPPAGE_PCT / 100));
+
+    balance -= positionSize; // Deduct capital for the new position
+
+    const newTrade = {
+        id: tradeIdCounter++,
+        mode: mode,
+        symbol: symbol,
+        side: 'BUY', // Strategy is long-only for now
+        entry_price: entryPriceWithSlippage,
+        current_price: entryPriceWithSlippage,
+        priceDirection: 'neutral',
+        exit_price: null,
+        quantity: quantity,
+        stop_loss: entryPriceWithSlippage * (1 - (settings.STOP_LOSS_PCT / 100)),
+        take_profit: entryPriceWithSlippage * (1 + (settings.TAKE_PROFIT_PCT / 100)),
+        highest_price_since_entry: entryPriceWithSlippage,
+        entry_time: new Date().toISOString(),
+        exit_time: null,
+        pnl: 0,
+        pnl_pct: 0,
+        status: 'FILLED',
+    };
+
+    activePositions.push(newTrade);
+    console.log(`[Trade Opened] ${quantity.toFixed(4)} ${symbol} @ ${entryPriceWithSlippage.toFixed(4)}. New balance: ${balance.toFixed(2)}`);
+    res.status(201).json(newTrade);
+});
+
+app.post('/api/close-trade/:id', isAuthenticated, (req, res) => {
+    const tradeId = parseInt(req.params.id, 10);
+    const tradeIndex = activePositions.findIndex(t => t.id === tradeId);
+    if (tradeIndex === -1) return res.status(404).json({ message: 'Trade not found' });
+    const trade = activePositions.splice(tradeIndex, 1)[0];
+    trade.exit_price = trade.current_price || trade.entry_price; // Use last known price
+    trade.exit_time = new Date().toISOString();
+    trade.status = 'CLOSED';
+    const pnl = (trade.exit_price - trade.entry_price) * trade.quantity;
+    trade.pnl = pnl;
+    balance += (trade.entry_price * trade.quantity) + pnl;
+    tradeHistory.push(trade);
+    res.json(trade);
+});
+
+
+// This would be the real test connection logic
+app.post('/api/test-connection', isAuthenticated, (req, res) => {
     const { apiKey, secretKey } = req.body;
-    // In a real app, this would use the node-binance-api or similar library
     console.log("Received connection test request for API Key:", apiKey);
     if (apiKey && secretKey) {
-        // Mock success
+        // Mock success for now, as real connection requires crypto libraries and is complex
         res.json({ success: true, message: "Connection successful (mock)." });
     } else {
         res.status(400).json({ success: false, message: "API Key or Secret Key missing." });
@@ -252,22 +239,9 @@ app.post('/api/test-connection', (req, res) => {
 });
 
 
-// --- Serve Frontend ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const frontendPath = path.join(__dirname, '..', 'dist');
-
-app.use(express.static(frontendPath));
-
-app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
-});
-
-
-// --- Start Server ---
+// --- Start Server and Trading Logic ---
 app.listen(port, async () => {
     await loadSettings();
     console.log(`Backend server running on http://localhost:${port}`);
-    // Here you would start the actual trading engine logic
-    // tradingEngine.start();
+    // TODO: Initialize and start the real trading engine here
 });

@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import { api } from '../services/mockApi';
 
@@ -12,20 +11,31 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('authToken'));
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // This effect runs on initial load to check if a token exists.
-    setIsLoading(false);
+    // On initial load, check with the backend if we have a valid session.
+    const verifySession = async () => {
+      try {
+        const data = await api.checkSession();
+        setIsAuthenticated(data.isAuthenticated);
+      } catch (error) {
+        // If the server returns 401 Unauthorized, it's fine.
+        console.log("No active session found.");
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    verifySession();
   }, []);
 
   const login = async (password: string): Promise<boolean> => {
     try {
       const response = await api.login(password);
-      if (response.success && response.token) {
-        localStorage.setItem('authToken', response.token);
-        setToken(response.token);
+      if (response.success) {
+        setIsAuthenticated(true);
         return true;
       }
       return false;
@@ -35,12 +45,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('authToken');
-    setToken(null);
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      setIsAuthenticated(false);
+    }
   };
-
-  const isAuthenticated = !!token;
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, login, logout, isLoading }}>

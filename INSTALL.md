@@ -117,7 +117,6 @@ nano .env
 You **must** set the following variables:
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
-- `JWT_SECRET`: A long, random string for security.
 - `BINANCE_API_KEY`: Your Binance API key.
 - `BINANCE_SECRET_KEY`: Your Binance secret key.
 

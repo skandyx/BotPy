@@ -1,11 +1,10 @@
 import { BotSettings, Trade, TradingMode } from '../types';
+import { logService } from './logService';
 
-const API_BASE_URL = '/api'; // This will be proxied by Vite dev server or Nginx in production
-
-const getAuthToken = () => localStorage.getItem('authToken');
+const API_BASE_URL = '/api';
 
 const handleResponse = async (response: Response) => {
-    if (response.status === 204) { // No Content
+    if (response.status === 204) {
         return;
     }
     const data = await response.json();
@@ -15,31 +14,46 @@ const handleResponse = async (response: Response) => {
     return data;
 };
 
-const authorizedFetch = async (endpoint: string, options: RequestInit = {}) => {
-    const token = getAuthToken();
-    const headers = {
-        'Content-Type': 'application/json',
-        ...options.headers,
-    };
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
+    const method = options.method || 'GET';
+    const url = `${API_BASE_URL}${endpoint}`;
+    
+    logService.log('API_CLIENT', `[REQ] ${method} ${endpoint}`);
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+            credentials: 'include', // Important for session cookies
+        });
+        const result = await handleResponse(response);
+        logService.log('API_CLIENT', `[RES OK] ${method} ${endpoint} - Status: ${response.status}`);
+        return result;
+    } catch (error) {
+        logService.log('ERROR', `[RES ERR] ${method} ${endpoint} - Error: ${error}`);
+        throw error;
     }
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
-    return handleResponse(response);
 };
+
 
 export const api = {
     // Auth
-    login: async (password: string): Promise<{ success: boolean, token?: string }> => {
-        const response = await fetch(`${API_BASE_URL}/login`, {
+    login: async (password: string): Promise<{ success: boolean, message: string }> => {
+        return apiFetch('/login', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password })
         });
-        return handleResponse(response);
+    },
+    logout: async (): Promise<void> => {
+        await apiFetch('/logout', { method: 'POST' });
+    },
+    checkSession: async (): Promise<{ isAuthenticated: boolean }> => {
+        return apiFetch('/check-session');
     },
     changePassword: async (newPassword: string): Promise<{ success: boolean, message: string }> => {
-        return authorizedFetch('/change-password', {
+        return apiFetch('/change-password', {
             method: 'POST',
             body: JSON.stringify({ newPassword })
         });
@@ -47,10 +61,10 @@ export const api = {
 
     // Settings
     fetchSettings: async (): Promise<BotSettings> => {
-        return authorizedFetch('/settings');
+        return apiFetch('/settings');
     },
     updateSettings: async (settings: Partial<BotSettings>): Promise<{ success: boolean }> => {
-        return authorizedFetch('/settings', {
+        return apiFetch('/settings', {
             method: 'POST',
             body: JSON.stringify(settings)
         });
@@ -58,36 +72,36 @@ export const api = {
 
     // Data
     fetchBotStatus: async () => {
-        return authorizedFetch('/status');
+        return apiFetch('/status');
     },
     fetchActivePositions: async () => {
-        return authorizedFetch('/positions');
+        return apiFetch('/positions');
     },
     fetchTradeHistory: async () => {
-        return authorizedFetch('/history');
+        return apiFetch('/history');
     },
     fetchPerformanceStats: async () => {
-        return authorizedFetch('/performance-stats');
+        return apiFetch('/performance-stats');
     },
     fetchScannedPairs: async () => {
-        return authorizedFetch('/scanner');
+        return apiFetch('/scanner');
     },
 
     // Actions
-    openTrade: async (symbol: string, price: number, mode: TradingMode): Promise<Trade> => {
-        return authorizedFetch('/open-trade', {
+     openTrade: async (symbol: string, price: number, mode: TradingMode): Promise<Trade> => {
+        return apiFetch('/open-trade', {
             method: 'POST',
             body: JSON.stringify({ symbol, price, mode })
         });
     },
      closeTrade: async (tradeId: number): Promise<Trade> => {
-        return authorizedFetch(`/close-trade/${tradeId}`, { method: 'POST' });
+        return apiFetch(`/close-trade/${tradeId}`, { method: 'POST' });
     },
     clearAllTradeData: async (): Promise<{ success: boolean }> => {
-        return authorizedFetch('/clear-data', { method: 'POST' });
+        return apiFetch('/clear-data', { method: 'POST' });
     },
     testBinanceConnection: async (apiKey: string, secretKey: string): Promise<{ success: boolean, message: string }> => {
-        return authorizedFetch('/test-connection', {
+        return apiFetch('/test-connection', {
             method: 'POST',
             body: JSON.stringify({ apiKey, secretKey })
         });

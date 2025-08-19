@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { logService } from '../services/logService';
 import { LogEntry } from '../types';
 
-const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'GECKO', 'BINANCE'];
+const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'GECKO', 'BINANCE'];
 type Tab = 'ALL' | LogEntry['level'];
 const TABS: Readonly<Tab[]> = ['ALL', ...LOG_LEVELS];
 
@@ -34,6 +34,7 @@ const ConsolePage: React.FC = () => {
   const getLogLevelClass = (level: LogEntry['level']) => {
     switch (level) {
       case 'INFO': return 'text-cyan-400';
+      case 'API_CLIENT': return 'text-pink-400';
       case 'WARN': return 'text-yellow-400';
       case 'ERROR': return 'text-red-400';
       case 'TRADE': return 'text-green-400';
@@ -71,7 +72,7 @@ const ConsolePage: React.FC = () => {
                               : 'border-transparent text-gray-400 hover:text-white'
                       }`}
                   >
-                      {tab.toLowerCase()}
+                      {tab.toLowerCase().replace('_', ' ')}
                   </button>
               ))}
           </div>
