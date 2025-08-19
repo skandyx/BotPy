@@ -5,6 +5,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import dotenv from 'dotenv';
 import session from 'express-session';
+import crypto from 'crypto';
+import { SMA, ADX } from 'technicalindicators';
 
 // --- Basic Setup ---
 dotenv.config();
@@ -12,17 +14,21 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 app.use(cors({
-    origin: '*', // In production, you might want to restrict this to your frontend's domain
+    origin: '*', // This is acceptable as Nginx will proxy requests, making them same-origin.
     credentials: true,
 }));
 app.use(bodyParser.json());
 
-// --- Session Management (Replaces JWT) ---
+// --- Session Management ---
 app.use(session({
-    secret: process.env.APP_PASSWORD || 'default_session_secret', // Use a strong secret
+    secret: process.env.APP_PASSWORD || 'default_session_secret',
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false } // Set to true if you're using HTTPS
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production (requires HTTPS)
+        httpOnly: true,
+        maxAge: 1000 * 60 * 60 * 24 // 1 day
+    }
 }));
 
 // --- Mock Backend State ---
@@ -32,6 +38,7 @@ let activePositions = [];
 let tradeHistory = [];
 let balance = 10000;
 let tradeIdCounter = 1;
+let scannerCache = { data: [], timestamp: 0 };
 
 // --- Helper Functions ---
 const loadSettings = async () => {
@@ -75,6 +82,104 @@ const saveSettings = async () => {
     }
 };
 
+// --- Binance API Helpers ---
+const createSignature = (queryString, secretKey) => {
+    return crypto.createHmac('sha256', secretKey).update(queryString).digest('hex');
+};
+
+const signedRequest = async (endpoint, params, apiKey, secretKey) => {
+    params.set('timestamp', Date.now().toString());
+    const queryString = params.toString();
+    const signature = createSignature(queryString, secretKey);
+    params.set('signature', signature);
+    
+    const url = `https://api.binance.com${endpoint}?${params.toString()}`;
+    
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'X-MBX-APIKEY': apiKey,
+        },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(`Binance API Error: ${data.msg || 'Unknown error'} (Code: ${data.code})`);
+    }
+    return data;
+};
+
+// --- Scanner Logic ---
+const runScanner = async () => {
+    console.log("Running market scanner...");
+    try {
+        const coingeckoUrl = 'https://api.coingecko.com/api/v3/exchanges/binance/tickers?include_exchange_logo=false&page=1&depth=false&order=volume_desc';
+        const response = await fetch(coingeckoUrl);
+        if (!response.ok) throw new Error(`CoinGecko API request failed with status ${response.status}`);
+        const data = await response.json();
+        const tickers = data.tickers;
+
+        const excluded = settings.EXCLUDED_PAIRS.split(',');
+        const filtered = tickers
+            .filter(t => t.target === 'USDT' && !t.base.includes('DOWN') && !t.base.includes('UP') && !t.is_stale)
+            .filter(t => !excluded.includes(t.base + t.target))
+            .filter(t => t.converted_volume.usd > settings.MIN_VOLUME_USD)
+            .slice(0, 100); // Limit to top 100 by volume to avoid rate limits
+
+        const enrichedPairs = [];
+        for (const ticker of filtered) {
+            try {
+                const symbol = ticker.base + ticker.target;
+                const klinesUrl = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=200`;
+                const klineRes = await fetch(klinesUrl);
+                if (!klineRes.ok) continue;
+                const klines = await klineRes.json();
+                
+                if (klines.length < 200) continue;
+
+                const closes = klines.map(k => parseFloat(k[4]));
+                const highs = klines.map(k => parseFloat(k[2]));
+                const lows = klines.map(k => parseFloat(k[3]));
+
+                const sma50 = SMA.calculate({ period: 50, values: closes });
+                const sma200 = SMA.calculate({ period: 200, values: closes });
+                const sma20 = SMA.calculate({ period: 20, values: closes });
+                const adxResult = ADX.calculate({ period: 14, high: highs, low: lows, close: closes });
+
+                const lastSma50 = sma50[sma50.length - 1];
+                const lastSma200 = sma200[sma200.length - 1];
+                const lastSma20 = sma20[sma20.length-1];
+                const lastAdx = adxResult.length > 0 ? adxResult[adxResult.length - 1].adx : 0;
+                const lastClose = closes[closes.length-1];
+
+                let marketRegime = 'NEUTRAL';
+                if (lastSma50 > lastSma200) marketRegime = 'UPTREND';
+                else if (lastSma50 < lastSma200) marketRegime = 'DOWNTREND';
+                
+                let trend_4h = 'NEUTRAL';
+                if (lastAdx > 25) {
+                    trend_4h = lastClose > lastSma20 ? 'UP' : 'DOWN';
+                }
+
+                enrichedPairs.push({
+                    symbol,
+                    volume: ticker.converted_volume.usd,
+                    price: ticker.last,
+                    priceDirection: 'neutral', trend: 'NEUTRAL', trend_4h, marketRegime,
+                    rsi: 50, adx: 20, score: 'HOLD', volatility: 0,
+                });
+            } catch (e) {
+                console.error(`Failed to process symbol ${ticker.base + ticker.target}: ${e.message}`);
+            }
+        }
+        
+        scannerCache = { data: enrichedPairs, timestamp: Date.now() };
+        console.log(`Scanner finished. Found ${enrichedPairs.length} potential pairs.`);
+    } catch (error) {
+        console.error(`Error in runScanner: ${error.message}`);
+    }
+};
+
 // --- Auth Middleware ---
 const isAuthenticated = (req, res, next) => {
     if (req.session.isAuthenticated) {
@@ -108,10 +213,8 @@ app.post('/api/change-password', isAuthenticated, async (req, res) => {
     if (!newPassword || newPassword.length < 6) {
         return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
     }
-    // This is NOT secure for production. It's a placeholder.
-    // Changing .env requires restarting the process.
-    console.warn("SECURITY WARNING: Password change requested. In a production environment, this should be handled securely and the process should be restarted to load the new .env value.");
-    res.json({ success: true, message: 'Password change endpoint reached. NOTE: For this version, password must be changed manually in the .env file and the server restarted.' });
+    console.warn("SECURITY WARNING: Password change requested. This is a placeholder. For this version, password must be changed manually in the .env file and the server restarted.");
+    res.json({ success: true, message: 'Password change acknowledged. Restart server after manual .env update.' });
 });
 
 app.get('/api/settings', isAuthenticated, (req, res) => res.json(settings));
@@ -122,12 +225,11 @@ app.post('/api/settings', isAuthenticated, async (req, res) => {
 });
 
 app.get('/api/status', isAuthenticated, (req, res) => {
-    // This should be dynamic from the real trading engine in the future
     res.json({
         balance,
         positions: activePositions.length,
-        monitored_pairs: 0, 
-        top_pairs: [],
+        monitored_pairs: scannerCache.data.length,
+        top_pairs: scannerCache.data.slice(0, 10).map(p => p.symbol),
         max_open_positions: settings.MAX_OPEN_POSITIONS
     });
 });
@@ -145,9 +247,12 @@ app.post('/api/clear-data', isAuthenticated, async (req, res) => {
     res.json({ success: true });
 });
 
-// Mock scanner for now
-app.get('/api/scanner', isAuthenticated, (req, res) => {
-    res.json([]);
+app.get('/api/scanner', isAuthenticated, async (req, res) => {
+    const CACHE_DURATION = (settings.COINGECKO_SYNC_SECONDS * 1000) / 2;
+    if (Date.now() - scannerCache.timestamp > CACHE_DURATION || scannerCache.data.length === 0) {
+        await runScanner();
+    }
+    res.json(scannerCache.data);
 });
 
 app.get('/api/performance-stats', isAuthenticated, (req, res) => {
@@ -163,8 +268,6 @@ app.get('/api/performance-stats', isAuthenticated, (req, res) => {
     });
 });
 
-
-// MOCK Trade execution
 app.post('/api/open-trade', isAuthenticated, (req, res) => {
     const { symbol, price, mode } = req.body;
     
@@ -179,30 +282,19 @@ app.post('/api/open-trade', isAuthenticated, (req, res) => {
     }
 
     const quantity = positionSize / price;
-    
-    // Simulate slippage for entry price
     const entryPriceWithSlippage = price * (1 + (settings.SLIPPAGE_PCT / 100));
-
-    balance -= positionSize; // Deduct capital for the new position
+    balance -= positionSize;
 
     const newTrade = {
         id: tradeIdCounter++,
-        mode: mode,
-        symbol: symbol,
-        side: 'BUY', // Strategy is long-only for now
-        entry_price: entryPriceWithSlippage,
-        current_price: entryPriceWithSlippage,
-        priceDirection: 'neutral',
-        exit_price: null,
-        quantity: quantity,
+        mode: mode, symbol: symbol, side: 'BUY',
+        entry_price: entryPriceWithSlippage, current_price: entryPriceWithSlippage,
+        priceDirection: 'neutral', exit_price: null, quantity: quantity,
         stop_loss: entryPriceWithSlippage * (1 - (settings.STOP_LOSS_PCT / 100)),
         take_profit: entryPriceWithSlippage * (1 + (settings.TAKE_PROFIT_PCT / 100)),
         highest_price_since_entry: entryPriceWithSlippage,
-        entry_time: new Date().toISOString(),
-        exit_time: null,
-        pnl: 0,
-        pnl_pct: 0,
-        status: 'FILLED',
+        entry_time: new Date().toISOString(), exit_time: null,
+        pnl: 0, pnl_pct: 0, status: 'FILLED',
     };
 
     activePositions.push(newTrade);
@@ -215,7 +307,7 @@ app.post('/api/close-trade/:id', isAuthenticated, (req, res) => {
     const tradeIndex = activePositions.findIndex(t => t.id === tradeId);
     if (tradeIndex === -1) return res.status(404).json({ message: 'Trade not found' });
     const trade = activePositions.splice(tradeIndex, 1)[0];
-    trade.exit_price = trade.current_price || trade.entry_price; // Use last known price
+    trade.exit_price = trade.current_price || trade.entry_price;
     trade.exit_time = new Date().toISOString();
     trade.status = 'CLOSED';
     const pnl = (trade.exit_price - trade.entry_price) * trade.quantity;
@@ -225,23 +317,29 @@ app.post('/api/close-trade/:id', isAuthenticated, (req, res) => {
     res.json(trade);
 });
 
-
-// This would be the real test connection logic
-app.post('/api/test-connection', isAuthenticated, (req, res) => {
+app.post('/api/test-connection', isAuthenticated, async (req, res) => {
     const { apiKey, secretKey } = req.body;
-    console.log("Received connection test request for API Key:", apiKey);
-    if (apiKey && secretKey) {
-        // Mock success for now, as real connection requires crypto libraries and is complex
-        res.json({ success: true, message: "Connection successful (mock)." });
-    } else {
-        res.status(400).json({ success: false, message: "API Key or Secret Key missing." });
+    console.log("Received connection test request.");
+    if (!apiKey || !secretKey) {
+        return res.status(400).json({ success: false, message: "API Key and Secret Key must be provided." });
+    }
+    try {
+        const params = new URLSearchParams();
+        const accountInfo = await signedRequest('/api/v3/account', params, apiKey, secretKey);
+        if (accountInfo && accountInfo.canTrade) {
+            res.json({ success: true, message: "Connection successful. API keys are valid." });
+        } else {
+            res.json({ success: false, message: "Connection succeeded, but trading is not enabled for this API key." });
+        }
+    } catch (error) {
+        console.error(`Binance connection test failed: ${error.message}`);
+        res.status(500).json({ success: false, message: `Connection failed: ${error.message}` });
     }
 });
 
-
-// --- Start Server and Trading Logic ---
+// --- Start Server ---
 app.listen(port, async () => {
     await loadSettings();
     console.log(`Backend server running on http://localhost:${port}`);
-    // TODO: Initialize and start the real trading engine here
+    await runScanner(); // Initial scan on startup
 });

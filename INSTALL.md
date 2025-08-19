@@ -115,6 +115,7 @@ nano .env
 ```
 
 You **must** set the following variables:
+- `NODE_ENV`: Set to `production` for deployment. This enables secure cookies and other optimizations.
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
 - `BINANCE_API_KEY`: Your Binance API key.
@@ -145,6 +146,7 @@ Now we will start the backend server using PM2.
 cd backend
 
 # Start the server with PM2
+# It will automatically pick up the .env file from the current directory
 pm2 start server.js --name botpy-backend
 
 # To ensure the bot restarts automatically after a server reboot:
