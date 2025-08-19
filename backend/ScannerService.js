@@ -21,21 +21,18 @@ export class ScannerService {
             
             this.log('SCANNER', `Found ${binancePairs.length} pairs after volume and exclusion filters.`);
 
-            // Step 3: Analyze each pair with persistent kline data
-            const analyzedPairs = [];
-            for (const pair of binancePairs) {
-                try {
-                    const analysis = await this.analyzePair(pair.symbol, settings);
-                    if (analysis) {
-                         analyzedPairs.push({
-                            ...pair,
-                            ...analysis,
-                         });
-                    }
-                } catch (e) {
-                    this.log('WARN', `Could not analyze pair ${pair.symbol}: ${e.message}`);
-                }
-            }
+            // Step 3: Analyze each pair in parallel for maximum performance
+            const analysisPromises = binancePairs.map(pair =>
+                this.analyzePair(pair.symbol, settings)
+                    .then(analysis => analysis ? { ...pair, ...analysis } : null)
+                    .catch(e => {
+                        this.log('WARN', `Could not analyze pair ${pair.symbol}: ${e.message}`);
+                        return null; // Return null on error so Promise.all doesn't fail
+                    })
+            );
+
+            const results = await Promise.all(analysisPromises);
+            const analyzedPairs = results.filter(p => p !== null); // Filter out nulls from errors or filters
             
             this.log('SCANNER', `Scanner finished. ${analyzedPairs.length} viable pairs analyzed.`);
             return analyzedPairs;
@@ -88,8 +85,8 @@ export class ScannerService {
     async analyzePair(symbol, settings) {
         const klines = await this.getPersistentKlines(symbol);
         if (klines.length < 200) {
-            this.log('SCANNER', `Skipping ${symbol}: Not enough kline data (${klines.length}/200).`);
-            return null; // Not enough data
+            // Not enough data to form a long-term opinion
+            return null;
         }
 
         const closes = klines.map(k => k.close);
@@ -115,17 +112,17 @@ export class ScannerService {
 
         // Apply master market regime filter
         if (settings.USE_MARKET_REGIME_FILTER && marketRegime !== 'UPTREND') {
-             return { score: 'HOLD', trend_4h: trend4h, marketRegime }; // Return minimal data if filtered out
+             return null; // If filtered out by regime, don't include it in the final list at all.
         }
 
         return {
             priceDirection: 'neutral',
-            trend: 'NEUTRAL', // This will be calculated from 1m data later if needed
+            trend: 'NEUTRAL', // Placeholder, will be calculated by 1m klines
             trend_4h: trend4h,
             marketRegime,
-            rsi: 50, // Placeholder
+            rsi: 50, // Placeholder, will be updated by 1m klines
             adx: 0, // Placeholder
-            score: 'BUY', // Default to BUY if it passes the 4h filters
+            score: 'HOLD', // Default to HOLD, will be updated by 1m klines
             volatility: 0, // Placeholder
         };
     }
@@ -142,44 +139,48 @@ export class ScannerService {
                 lastTimestamp = klines[klines.length - 1].timestamp;
             }
         } catch (err) {
-            if (err.code === 'ENOENT') {
-                // File doesn't exist, this is normal on first run for a symbol.
-            } else {
+            if (err.code !== 'ENOENT') {
                 this.log('WARN', `Could not read or parse kline file ${symbol}.json. Will refetch all data. Error: ${err.message}`);
                 klines = []; // Reset klines if file is corrupt
             }
         }
+        
+        // Only fetch if data is incomplete or stale (e.g., more than 4 hours old)
+        const isDataStale = (Date.now() - lastTimestamp) > (4 * 60 * 60 * 1000);
+        if(klines.length < 200 || isDataStale) {
+            const binanceKlines = await this.fetchKlinesFromBinance(symbol, lastTimestamp);
+            const newKlines = binanceKlines.map(k => ({
+                timestamp: k[0],
+                open: parseFloat(k[1]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                close: parseFloat(k[4]),
+                volume: parseFloat(k[5]),
+            }));
 
-        const binanceKlines = await this.fetchKlinesFromBinance(symbol, lastTimestamp);
+            if (newKlines.length > 0) {
+                // If the last kline we have matches the first new one, it's an update to the current candle.
+                if (klines.length > 0 && klines[klines.length - 1].timestamp === newKlines[0].timestamp) {
+                    klines[klines.length - 1] = newKlines.shift();
+                }
+                klines.push(...newKlines);
+                
+                // Keep only the last 200 candles to save space and improve performance
+                if(klines.length > 200) {
+                    klines = klines.slice(klines.length - 200);
+                }
 
-        const newKlines = binanceKlines.map(k => ({
-            timestamp: k[0],
-            open: parseFloat(k[1]),
-            high: parseFloat(k[2]),
-            low: parseFloat(k[3]),
-            close: parseFloat(k[4]),
-            volume: parseFloat(k[5]),
-        }));
-
-        if (newKlines.length > 0) {
-            if (klines.length > 0 && klines[klines.length - 1].timestamp === newKlines[0].timestamp) {
-                klines[klines.length - 1] = newKlines.shift();
+                await fs.writeFile(klineFilePath, JSON.stringify(klines));
             }
-            klines.push(...newKlines);
-            
-            if(klines.length > 200) {
-                klines = klines.slice(klines.length - 200);
-            }
-
-            await fs.writeFile(klineFilePath, JSON.stringify(klines, null, 2));
         }
-
+        
         return klines;
     }
 
     async fetchKlinesFromBinance(symbol, startTime = 0) {
         let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=201`;
         if (startTime > 0) {
+            // Fetch everything since the last candle
             url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&startTime=${startTime + 1}`;
         }
         

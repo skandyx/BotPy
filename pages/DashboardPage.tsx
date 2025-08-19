@@ -60,7 +60,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                         className="text-red-500 hover:text-red-700 transition-colors"
                                         title="Manually Close Position"
                                     >
-                                        <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                        <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 BASH_IS_BASH -b 24 24" strokeWidth="2" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
@@ -169,7 +169,7 @@ const DashboardPage: React.FC = () => {
 
         refreshStats();
         return () => { isMounted = false; };
-    }, [tradeActivityCounter, tradingMode]);
+    }, [tradeActivityCounter]);
     
     const performanceChartData = useMemo(() => {
         if (!tradeHistory || tradeHistory.length === 0) {
@@ -201,13 +201,21 @@ const DashboardPage: React.FC = () => {
         return <p className="text-center text-red-500">Failed to load dashboard data.</p>;
     }
     
+    const getModeLabel = (mode: TradingMode) => {
+        switch (mode) {
+            case TradingMode.VIRTUAL: return 'Virtual';
+            case TradingMode.REAL_PAPER: return 'Real (Paper)';
+            case TradingMode.REAL_LIVE: return 'Real (Live)';
+        }
+    };
+
     const totalPnlClass = stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400';
 
     return (
         <>
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Balance" value={`$${status.balance.toFixed(2)}`} subtitle="Capital disponible" />
+                <StatCard title="Balance" value={`$${status.balance.toFixed(2)}`} subtitle={getModeLabel(status.mode)} />
                 <StatCard title="Open Positions" value={status.positions} subtitle={`Max: ${status.max_open_positions}`} />
                 <StatCard title="Total PnL" value={`$${stats.total_pnl.toFixed(2)}`} subtitle={`Win Rate: ${stats.win_rate.toFixed(1)}%`} valueClassName={totalPnlClass} />
                 <StatCard title="Monitored Pairs" value={status.monitored_pairs} subtitle={`Volume > $${(settings.MIN_VOLUME_USD / 1000000).toFixed(0)}M`} />

@@ -122,5 +122,14 @@ export const api = {
     },
     stopBot: async (): Promise<{ success: boolean }> => {
         return apiFetch('/bot/stop', { method: 'POST' });
-    }
+    },
+    fetchTradingMode: async (): Promise<{ mode: TradingMode }> => {
+        return apiFetch('/mode');
+    },
+    updateTradingMode: async (mode: TradingMode): Promise<{ success: boolean, mode: TradingMode }> => {
+        return apiFetch('/mode', {
+            method: 'POST',
+            body: JSON.stringify({ mode })
+        });
+    },
 };

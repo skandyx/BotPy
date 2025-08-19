@@ -51,8 +51,9 @@ const connect = () => {
                 case 'PRICE_UPDATE':
                     priceStore.updatePrice(message.payload);
                     break;
-                case 'KLINE_UPDATE':
-                    scannerStore.handleKlineUpdate(message.payload);
+                case 'SCANNER_UPDATE':
+                    // This is the new primary message for real-time indicator/score updates
+                    scannerStore.handleScannerUpdate(message.payload);
                     break;
                 case 'POSITIONS_UPDATED':
                     logService.log('TRADE', 'Positions updated by backend, triggering data refresh...');

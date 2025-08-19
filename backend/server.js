@@ -10,6 +10,8 @@ import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
 import { ScannerService } from './ScannerService.js';
+import { RSI, ADX } from 'technicalindicators';
+
 
 // --- Basic Setup ---
 dotenv.config();
@@ -144,11 +146,14 @@ const loadData = async () => {
         botState.tradeHistory = persistedState.tradeHistory || [];
         botState.tradeIdCounter = persistedState.tradeIdCounter || 1;
         botState.isRunning = persistedState.isRunning !== undefined ? persistedState.isRunning : true;
+        botState.tradingMode = persistedState.tradingMode || 'VIRTUAL';
     } catch {
         log("WARN", "state.json not found. Initializing default state.");
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
+    // After loading settings, update services that depend on them.
+    realtimeAnalyzer.updateSettings(botState.settings);
 };
 
 const saveData = async (type) => {
@@ -162,10 +167,109 @@ const saveData = async (type) => {
             tradeHistory: botState.tradeHistory,
             tradeIdCounter: botState.tradeIdCounter,
             isRunning: botState.isRunning,
+            tradingMode: botState.tradingMode,
         };
         await fs.writeFile(STATE_FILE_PATH, JSON.stringify(stateToPersist, null, 2));
     }
 };
+
+
+// --- Realtime Analysis Engine ---
+class RealtimeAnalyzer {
+    constructor(log) {
+        this.log = log;
+        this.settings = {};
+        this.klineData = new Map();
+    }
+
+    updateSettings(newSettings) {
+        this.log('INFO', '[Analyzer] Settings updated.');
+        this.settings = newSettings;
+    }
+
+    handleKline(klineMsg) {
+        if (!this.settings || Object.keys(this.settings).length === 0) return;
+
+        const symbol = klineMsg.s;
+        const k = klineMsg.k;
+        
+        const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
+        if (!pairToUpdate) return;
+
+        const newKline = {
+            close: parseFloat(k.c),
+            high: parseFloat(k.h),
+            low: parseFloat(k.l),
+            volume: parseFloat(k.v),
+        };
+
+        const existingKlines = this.klineData.get(symbol) || [];
+        existingKlines.push(newKline);
+        if (existingKlines.length > 100) existingKlines.shift();
+        this.klineData.set(symbol, existingKlines);
+        
+        if (existingKlines.length < 20) return;
+
+        const closes = existingKlines.map(d => d.close);
+        const highs = existingKlines.map(d => d.high);
+        const lows = existingKlines.map(d => d.low);
+        const volumes = existingKlines.map(d => d.volume);
+
+        const stdDev = this.calculateStdDev(closes);
+        const avgPrice = closes.reduce((a, b) => a + b, 0) / closes.length;
+        const volatility = avgPrice > 0 ? (stdDev / avgPrice) * 100 : 0;
+
+        let isVolumeConfirmed = !this.settings.USE_VOLUME_CONFIRMATION;
+        if (this.settings.USE_VOLUME_CONFIRMATION) {
+             if (volumes.length >= 20) {
+                const volumeMA20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+                isVolumeConfirmed = newKline.volume >= volumeMA20;
+            } else {
+                isVolumeConfirmed = false;
+            }
+        }
+
+        const rsiResult = RSI.calculate({ values: closes, period: 14 });
+        const adxResult = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+
+        const rsi = rsiResult.length > 0 ? rsiResult[rsiResult.length - 1] : 50;
+        const adx = adxResult.length > 0 ? adxResult[adxResult.length - 1].adx : 20;
+
+        const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        
+        let trend = 'NEUTRAL';
+        if (adx > 25) {
+            trend = newKline.close > sma20 ? 'UP' : 'DOWN';
+        }
+
+        const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
+
+        let score = 'HOLD';
+        if (trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isLongTermTrendConfirmed) {
+            if (rsi > 50 && rsi < 70) {
+                score = 'STRONG BUY';
+            } else if (rsi > 50) {
+                score = 'BUY';
+            }
+        }
+
+        pairToUpdate.rsi = rsi;
+        pairToUpdate.adx = adx;
+        pairToUpdate.trend = trend;
+        pairToUpdate.score = score;
+        pairToUpdate.volatility = volatility;
+        
+        broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+    }
+    
+    calculateStdDev(arr) {
+        const n = arr.length;
+        if (n === 0) return 0;
+        const mean = arr.reduce((a, b) => a + b) / n;
+        return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
+    }
+}
+
 
 // --- Bot State & Services ---
 let botState = {
@@ -175,10 +279,12 @@ let botState = {
     tradeHistory: [],
     tradeIdCounter: 1,
     isRunning: true,
-    scannerCache: [],
+    tradingMode: 'VIRTUAL',
+    scannerCache: [], // This will now hold real-time data
     recentlyLostSymbols: new Map(),
 };
 const scannerService = new ScannerService(log, KLINE_DATA_DIR);
+const realtimeAnalyzer = new RealtimeAnalyzer(log);
 
 const createBinanceFeeder = (id, streamBuilder) => ({
     ws: null,
@@ -246,7 +352,7 @@ const klineFeeder = {
             const kline = message.data;
             if (kline.k.x) { // Is candle closed?
                 log('BINANCE_WS', `1m Kline closed for ${kline.s}: C=${kline.k.c} V=${kline.k.v}`);
-                broadcast({ type: 'KLINE_UPDATE', payload: kline });
+                realtimeAnalyzer.handleKline(kline);
             }
         }
     }
@@ -333,6 +439,7 @@ const tradingEngine = {
         }
 
         for (const pair of botState.scannerCache) {
+            // THE CORE TRADING DECISION IS NOW MADE HERE WITH REAL-TIME DATA
             if (pair.score === 'STRONG BUY' || pair.score === 'BUY') {
                 const alreadyInPosition = botState.activePositions.some(p => p.symbol === pair.symbol);
                 if (alreadyInPosition) continue;
@@ -351,11 +458,17 @@ const tradingEngine = {
         }
     },
     openTrade: function(pair) {
-        const { settings, balance } = botState;
+        const { settings, balance, tradingMode } = botState;
+        const currentPrice = priceFeeder.latestPrices.get(pair.symbol);
+        if (!currentPrice) {
+            log('WARN', `Cannot open trade for ${pair.symbol}, latest price not available.`);
+            return;
+        }
+
         const positionSizeUSD = balance * (settings.POSITION_SIZE_PCT / 100);
-        const quantity = positionSizeUSD / pair.price;
+        const quantity = positionSizeUSD / currentPrice;
         
-        const entryPrice = pair.price * (1 + settings.SLIPPAGE_PCT / 100);
+        const entryPrice = currentPrice * (1 + settings.SLIPPAGE_PCT / 100);
         const cost = entryPrice * quantity;
         
         if (balance < cost) {
@@ -366,7 +479,7 @@ const tradingEngine = {
         botState.balance -= cost;
         const newTrade = {
             id: botState.tradeIdCounter++,
-            mode: 'VIRTUAL',
+            mode: tradingMode,
             symbol: pair.symbol,
             side: 'BUY',
             entry_price: entryPrice,
@@ -434,10 +547,27 @@ app.post('/api/logout', (req, res) => {
     req.session.destroy(() => res.json({ success: true }));
 });
 app.get('/api/check-session', (req, res) => res.json({ isAuthenticated: !!req.session.isAuthenticated }));
+
+app.get('/api/mode', isAuthenticated, (req, res) => {
+    res.json({ mode: botState.tradingMode });
+});
+app.post('/api/mode', isAuthenticated, async (req, res) => {
+    const { mode } = req.body;
+    if (mode && ['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
+        botState.tradingMode = mode;
+        await saveData('state');
+        log('INFO', `Trading mode switched to ${mode}`);
+        res.json({ success: true, mode: botState.tradingMode });
+    } else {
+        res.status(400).json({ success: false, message: 'Invalid trading mode specified.' });
+    }
+});
+
 app.get('/api/settings', isAuthenticated, (req, res) => res.json(botState.settings));
 app.post('/api/settings', isAuthenticated, async (req, res) => {
     const oldSyncSeconds = botState.settings.COINGECKO_SYNC_SECONDS;
     botState.settings = { ...botState.settings, ...req.body };
+    realtimeAnalyzer.updateSettings(botState.settings); // Update the analyzer with new settings
     await saveData('settings');
     log('INFO', 'Bot settings have been updated.');
     
@@ -493,6 +623,7 @@ app.post('/api/close-trade/:tradeId', isAuthenticated, (req, res) => {
 app.get('/api/history', isAuthenticated, (req, res) => res.json(botState.tradeHistory));
 app.get('/api/status', isAuthenticated, (req, res) => {
     res.json({
+        mode: botState.tradingMode,
         balance: botState.balance,
         positions: botState.activePositions.length,
         monitored_pairs: botState.scannerCache.length,
