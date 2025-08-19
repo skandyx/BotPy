@@ -2,6 +2,7 @@ import { WebSocketStatus, LogEntry } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
 import { positionService } from './positionService';
+import { scannerStore } from './scannerStore';
 
 export interface PriceUpdate {
     symbol: string;
@@ -49,6 +50,9 @@ const connect = () => {
             switch (message.type) {
                 case 'PRICE_UPDATE':
                     priceStore.updatePrice(message.payload);
+                    break;
+                case 'KLINE_UPDATE':
+                    scannerStore.handleKlineUpdate(message.payload);
                     break;
                 case 'POSITIONS_UPDATED':
                     logService.log('TRADE', 'Positions updated by backend, triggering data refresh...');

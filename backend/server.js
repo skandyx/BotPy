@@ -180,10 +180,9 @@ let botState = {
 };
 const scannerService = new ScannerService(log, KLINE_DATA_DIR);
 
-// --- Price Feeder (Connects to Binance WS) ---
-const priceFeeder = {
+const createBinanceFeeder = (id, streamBuilder) => ({
     ws: null,
-    latestPrices: new Map(),
+    id,
     subscribedSymbols: new Set(),
     connect: function() {
         if (this.ws) {
@@ -191,58 +190,68 @@ const priceFeeder = {
             this.ws.close();
         }
         if (this.subscribedSymbols.size === 0) {
-            log("BINANCE_WS", "No symbols to subscribe to. Skipping connection.");
+            log("BINANCE_WS", `[${this.id}] No symbols to subscribe to. Skipping connection.`);
             return;
         }
-        const streams = Array.from(this.subscribedSymbols).map(s => `${s.toLowerCase()}@miniTicker`).join('/');
+        const streams = Array.from(this.subscribedSymbols).map(streamBuilder).join('/');
         const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
         this.ws = new WebSocket(url);
-        this.ws.on('open', () => log("BINANCE_WS", `Connected to Binance for ${this.subscribedSymbols.size} symbols.`));
-        this.ws.on('message', (data) => {
-            const message = JSON.parse(data.toString());
-            if (message.data && message.data.e === '24hrMiniTicker') {
-                const symbol = message.data.s;
-                const price = parseFloat(message.data.c);
-                this.latestPrices.set(symbol, price);
-                broadcast({ type: 'PRICE_UPDATE', payload: { symbol, price } });
-            }
-        });
+        this.ws.on('open', () => log("BINANCE_WS", `[${this.id}] Connected for ${this.subscribedSymbols.size} symbols.`));
+        this.ws.on('message', this.handleMessage.bind(this));
         this.ws.on('close', () => {
             if (this.subscribedSymbols.size > 0) {
-                log('WARN', '[PriceFeeder] Disconnected from Binance. Will reconnect in 5s.');
+                log('WARN', `[${this.id}] Disconnected from Binance. Will reconnect in 5s.`);
                 setTimeout(() => this.connect(), 5000);
             }
         });
-        this.ws.on('error', (err) => log('ERROR', `[PriceFeeder] Error: ${err.message}`));
+        this.ws.on('error', (err) => log('ERROR', `[${this.id}] Error: ${err.message}`));
     },
     updateSubscriptions: function(newSymbols) {
-        let needsReconnect = false;
         const newSet = new Set(newSymbols);
-        if (newSet.size === 0 && this.subscribedSymbols.size > 0) {
-            this.subscribedSymbols = new Set();
-            if (this.ws) {
-                this.ws.close();
-                log("BINANCE_WS", "No active symbols. Disconnected from Binance Price Feeder.");
-            }
+        if (newSet.size === this.subscribedSymbols.size && [...newSet].every(symbol => this.subscribedSymbols.has(symbol))) {
+            return; // No change in subscriptions
+        }
+
+        this.subscribedSymbols = newSet;
+        if (newSet.size === 0) {
+            if (this.ws) this.ws.close();
+            log("BINANCE_WS", `[${this.id}] No active symbols. Disconnected.`);
             return;
         }
-        if (newSet.size !== this.subscribedSymbols.size) {
-            needsReconnect = true;
-        } else {
-            for (const symbol of newSet) {
-                if (!this.subscribedSymbols.has(symbol)) {
-                    needsReconnect = true;
-                    break;
-                }
-            }
-        }
-        if (needsReconnect) {
-            this.subscribedSymbols = newSet;
-            log("BINANCE_WS", `Subscriptions updated with ${newSet.size} symbols. Reconnecting to Binance.`);
-            this.connect();
+        log("BINANCE_WS", `[${this.id}] Subscriptions updated with ${newSet.size} symbols. Reconnecting.`);
+        this.connect();
+    },
+});
+
+
+const priceFeeder = {
+    ...createBinanceFeeder('PriceTicker', (s) => `${s.toLowerCase()}@miniTicker`),
+    latestPrices: new Map(),
+    handleMessage: function(data) {
+        const message = JSON.parse(data.toString());
+        if (message.data && message.data.e === '24hrMiniTicker') {
+            const symbol = message.data.s;
+            const price = parseFloat(message.data.c);
+            this.latestPrices.set(symbol, price);
+            broadcast({ type: 'PRICE_UPDATE', payload: { symbol, price } });
         }
     }
 };
+
+const klineFeeder = {
+    ...createBinanceFeeder('KlineFeeder', (s) => `${s.toLowerCase()}@kline_1m`),
+    handleMessage: function(data) {
+        const message = JSON.parse(data.toString());
+        if (message.data && message.data.e === 'kline') {
+            const kline = message.data;
+            if (kline.k.x) { // Is candle closed?
+                log('BINANCE_WS', `1m Kline closed for ${kline.s}: C=${kline.k.c} V=${kline.k.v}`);
+                broadcast({ type: 'KLINE_UPDATE', payload: kline });
+            }
+        }
+    }
+};
+
 
 // --- Main Scanner Loop ---
 const runScannerLoop = async () => {
@@ -251,7 +260,9 @@ const runScannerLoop = async () => {
         const scannedPairs = await scannerService.runScan(botState.settings);
         botState.scannerCache = scannedPairs;
         const symbolsToWatch = new Set([...scannedPairs.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
-        priceFeeder.updateSubscriptions(Array.from(symbolsToWatch));
+        const symbolsArray = Array.from(symbolsToWatch);
+        priceFeeder.updateSubscriptions(symbolsArray);
+        klineFeeder.updateSubscriptions(symbolsArray);
     } catch (error) {
         log("ERROR", `Error during scanner run: ${error.message}`);
     }

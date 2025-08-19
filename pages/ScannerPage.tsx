@@ -69,28 +69,45 @@ const ScannerPage: React.FC = () => {
     );
   }, []);
 
-  useEffect(() => {
-    const handleScannerUpdate = (updatedPairs: ScannedPair[]) => {
-      setPairs(updatedPairs);
-      // This is the crucial change: only modify loading state on the initial data load.
-      if (isInitialLoading) {
+  const handleScannerUpdate = useCallback((updatedPairs: ScannedPair[]) => {
+    setPairs(prevPairs => {
+        const prevPairsMap = new Map(prevPairs.map(p => [p.symbol, p]));
+        return updatedPairs.map(newPair => {
+            const existingPair = prevPairsMap.get(newPair.symbol);
+            if (existingPair) {
+                // Pair exists. Use new scanner data (rsi, score, etc.)
+                // BUT preserve the most recent real-time price and its direction.
+                return {
+                    ...newPair,
+                    price: existingPair.price,
+                    priceDirection: existingPair.priceDirection,
+                };
+            }
+            // This is a new pair that wasn't in the state before.
+            return newPair;
+        });
+    });
+
+    if (isInitialLoading) {
         setIsInitialLoading(false);
-      }
-    };
-    
+    }
+  }, [isInitialLoading]);
+
+
+  useEffect(() => {
     const unsubscribeScanner = scannerStore.subscribe(handleScannerUpdate);
     const unsubscribePrice = priceStore.subscribe(handlePriceUpdate);
 
-    // Re-check in case data was loaded between component init and this effect.
     if (isInitialLoading && scannerStore.getScannedPairs().length > 0) {
         setIsInitialLoading(false);
+        setPairs(scannerStore.getScannedPairs());
     }
 
     return () => {
         unsubscribeScanner();
         unsubscribePrice();
     };
-  }, [handlePriceUpdate, isInitialLoading]);
+  }, [handlePriceUpdate, handleScannerUpdate, isInitialLoading]);
 
 
   const requestSort = (key: SortableKeys) => {
