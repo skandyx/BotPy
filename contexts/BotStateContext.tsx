@@ -1,5 +1,7 @@
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 import { TradingMode } from '../types';
+import { api } from '../services/mockApi';
+import { useAuth } from './AuthContext';
 
 interface BotStateContextType {
   isBotRunning: boolean;
@@ -11,12 +13,32 @@ interface BotStateContextType {
 const BotStateContext = createContext<BotStateContextType | undefined>(undefined);
 
 export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isBotRunning, setIsBotRunning] = useState<boolean>(true); // Start as ON by default
+  const [isBotRunning, setIsBotRunning] = useState<boolean>(true);
   const [tradingMode, setTradingMode] = useState<TradingMode>(TradingMode.VIRTUAL);
+  const { isAuthenticated } = useAuth();
 
-  const toggleBot = () => {
-    setIsBotRunning(prev => !prev);
-  };
+  useEffect(() => {
+    if (isAuthenticated) {
+        api.getBotRunStatus()
+            .then(data => setIsBotRunning(data.isRunning))
+            .catch(err => console.error("Could not fetch bot run status:", err));
+    }
+  }, [isAuthenticated]);
+
+
+  const toggleBot = useCallback(async () => {
+    try {
+        if (isBotRunning) {
+            await api.stopBot();
+            setIsBotRunning(false);
+        } else {
+            await api.startBot();
+            setIsBotRunning(true);
+        }
+    } catch (error) {
+        console.error("Failed to toggle bot state:", error);
+    }
+  }, [isBotRunning]);
 
   return (
     <BotStateContext.Provider value={{ isBotRunning, toggleBot, tradingMode, setTradingMode }}>

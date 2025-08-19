@@ -88,13 +88,13 @@ export const api = {
     },
 
     // Actions
-     openTrade: async (symbol: string, price: number, mode: TradingMode): Promise<Trade> => {
+    openTrade: async (symbol: string, price: number, mode: TradingMode): Promise<Trade> => {
         return apiFetch('/open-trade', {
             method: 'POST',
             body: JSON.stringify({ symbol, price, mode })
         });
     },
-     closeTrade: async (tradeId: number): Promise<Trade> => {
+    closeTrade: async (tradeId: number): Promise<Trade> => {
         return apiFetch(`/close-trade/${tradeId}`, { method: 'POST' });
     },
     clearAllTradeData: async (): Promise<{ success: boolean }> => {
@@ -106,4 +106,15 @@ export const api = {
             body: JSON.stringify({ apiKey, secretKey })
         });
     },
+
+    // Bot Control
+    getBotRunStatus: async (): Promise<{ isRunning: boolean }> => {
+        return apiFetch('/bot/status');
+    },
+    startBot: async (): Promise<{ success: boolean }> => {
+        return apiFetch('/bot/start', { method: 'POST' });
+    },
+    stopBot: async (): Promise<{ success: boolean }> => {
+        return apiFetch('/bot/stop', { method: 'POST' });
+    }
 };

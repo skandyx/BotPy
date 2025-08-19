@@ -1,7 +1,7 @@
 import { WebSocketStatus } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
-import { scannerStore } from './scannerStore';
+import { positionService } from './positionService';
 
 export interface PriceUpdate {
     symbol: string;
@@ -12,31 +12,14 @@ type StatusChangeCallback = (status: WebSocketStatus) => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
-let reconnectTimeout: number | null = null; // For auto-reconnect on unexpected close
+let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
-
-// --- State management for multiple subscription owners ---
 let watchedSymbols = new Set<string>();
-const symbolOwners = new Map<string, Set<string>>();
-// ---
 
-// --- Debounce timer for reconnection logic to prevent race conditions ---
-let reconnectDebounceTimer: number | null = null;
-// ---
-
-
-const BINANCE_BASE_URL = 'wss://stream.binance.com:9443/stream';
-
-const getStreamNamesForSymbols = (symbols: string[]): string[] => {
-    const streams: string[] = [];
-    symbols.forEach(s => {
-        const symbolLower = s.toLowerCase();
-        streams.push(`${symbolLower}@miniTicker`); // For fast price updates
-        streams.push(`${symbolLower}@kline_1m`);
-        streams.push(`${symbolLower}@kline_15m`);
-        streams.push(`${symbolLower}@kline_1h`);
-    });
-    return streams;
+const getWebSocketURL = () => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}`;
 };
 
 const connect = () => {
@@ -47,52 +30,36 @@ const connect = () => {
     isManualDisconnect = false;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
 
-    if (watchedSymbols.size === 0) {
-        logService.log('WEBSOCKET', 'No symbols to watch. WebSocket connection deferred.');
-        statusCallback?.(WebSocketStatus.DISCONNECTED);
-        return;
-    }
-    
-    const streams = getStreamNamesForSymbols(Array.from(watchedSymbols));
-    const fullUrl = `${BINANCE_BASE_URL}?streams=${streams.join('/')}`;
-    
-    logService.log('WEBSOCKET', `Connecting to Binance combined stream...`);
+    const url = getWebSocketURL();
+    logService.log('WEBSOCKET', `Connecting to backend at ${url}...`);
     statusCallback?.(WebSocketStatus.CONNECTING);
-    socket = new WebSocket(fullUrl);
+    socket = new WebSocket(url);
 
     socket.onopen = () => {
-        logService.log('WEBSOCKET', `WebSocket connected successfully to ${watchedSymbols.size} pairs.`);
+        logService.log('WEBSOCKET', 'Successfully connected to backend.');
         statusCallback?.(WebSocketStatus.CONNECTED);
+        // On connection, tell the backend which symbols we care about
+        subscribeToSymbols(Array.from(watchedSymbols));
     };
 
     socket.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
-            if (!message.stream || !message.data) return;
-
-            const symbol = message.data.s.toUpperCase();
-
-            if (message.data.e === '24hrMiniTicker') {
-                const price = parseFloat(message.data.c);
-                priceStore.updatePrice({ symbol, price });
-
-            } else if (message.data.e === 'kline') {
-                const kline = message.data.k;
-                const interval = kline.i;
-                const isClosed = kline.x;
-
-                // Update real-time price from kline's close price for UI responsiveness
-                priceStore.updatePrice({ symbol, price: parseFloat(kline.c) });
-
-                // We only care about closed candles for logging and calculations
-                if (isClosed) {
-                    logService.log('WEBSOCKET', `[KLINE CLOSED] ${symbol} | ${interval} | C: ${kline.c}`);
-
-                    // If it's a closed 1-minute candle, notify the scannerStore to update indicators
-                    if (interval === '1m') {
-                        scannerStore.handleKlineUpdate(message.data);
-                    }
-                }
+            switch (message.type) {
+                case 'PRICE_UPDATE':
+                    priceStore.updatePrice(message.payload);
+                    break;
+                case 'POSITIONS_UPDATED':
+                    logService.log('TRADE', 'Positions updated by backend, fetching new data...');
+                    api.fetchActivePositions().then(positionService._initialize);
+                    api.fetchTradeHistory(); // Potentially trigger update on history page
+                    break;
+                case 'BOT_STATUS_UPDATE':
+                    // This can be handled by a context if needed in the future
+                    logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
+                    break;
+                default:
+                    logService.log('WEBSOCKET', `Received unknown message type: ${message.type}`);
             }
         } catch (error) {
             logService.log('ERROR', `Failed to parse WebSocket message: ${event.data}`);
@@ -103,7 +70,7 @@ const connect = () => {
         statusCallback?.(WebSocketStatus.DISCONNECTED);
         socket = null;
         if (!isManualDisconnect) {
-            logService.log('WARN', 'WebSocket disconnected. Attempting to reconnect in 5s...');
+            logService.log('WARN', 'WebSocket disconnected from backend. Attempting to reconnect in 5s...');
             reconnectTimeout = window.setTimeout(connect, 5000);
         } else {
             logService.log('INFO', 'WebSocket disconnected manually.');
@@ -120,95 +87,45 @@ const connect = () => {
 const disconnect = () => {
     isManualDisconnect = true;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    if (reconnectDebounceTimer) {
-        clearTimeout(reconnectDebounceTimer);
-        reconnectDebounceTimer = null;
-    }
-
-    // Full state reset to prevent issues with React StrictMode double-invoking effects
-    symbolOwners.clear();
     watchedSymbols.clear();
-    
     if (socket) {
-        logService.log('INFO', 'Manual disconnect initiated. Clearing state and closing socket.');
-        // Nullify handlers to prevent the onclose event from triggering a reconnect, which can cause a race condition.
-        socket.onclose = null;
-        socket.onerror = null;
         socket.close();
         socket = null;
     }
 };
 
-
-// This is the function that will actually perform the reconnection logic.
-const _executeReconnect = () => {
-    // 1. Consolidate all symbols from all owners into a single unique set.
-    const newSymbolSet = new Set<string>();
-    for (const ownerSymbols of symbolOwners.values()) {
-        for (const symbol of ownerSymbols) {
-            newSymbolSet.add(symbol);
-        }
+const subscribeToSymbols = (symbols: string[]) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        logService.log('WEBSOCKET', `Sending subscription request for ${symbols.length} symbols.`);
+        socket.send(JSON.stringify({ type: 'SUBSCRIBE', symbols }));
+    } else {
+        logService.log('WEBSOCKET', 'Socket not open. Subscription deferred until connection is established.');
     }
-
-    // 2. Check if the final list of symbols has actually changed.
-    const areSetsEqual = (a: Set<string>, b: Set<string>) => {
-        if (a.size !== b.size) return false;
-        for (const item of a) if (!b.has(item)) return false;
-        return true;
-    };
-
-    if (areSetsEqual(watchedSymbols, newSymbolSet) && socket?.readyState === WebSocket.OPEN) {
-        logService.log('WEBSOCKET', `Watch list unchanged (${newSymbolSet.size} symbols) and socket connected. No reconnection needed.`);
-        return; 
-    }
-
-    logService.log('WEBSOCKET', `Symbol watch list updated. Reconnecting WebSocket. New count: ${newSymbolSet.size}, Old count: ${watchedSymbols.size}`);
-    watchedSymbols = newSymbolSet;
-
-    // 3. Disconnect existing socket before creating a new one.
-    if (socket) {
-        logService.log('WEBSOCKET', 'Previous WebSocket connection closed for list update.');
-        // Nullify handlers of the old socket to prevent its onclose event from firing and causing a race condition with the new connection.
-        socket.onclose = null;
-        socket.onerror = null;
-        socket.close();
-        socket = null; // Null out the reference immediately to allow a new connection.
-    }
-    
-    // 4. Connect with the new set of symbols.
-    connect();
-}
-
-// This function is called by owners. It debounces the actual reconnection.
-const _updateAndReconnect = () => {
-    if (reconnectDebounceTimer) {
-        clearTimeout(reconnectDebounceTimer);
-    }
-    // After a short delay, execute the reconnect. This batches multiple rapid calls (e.g., on startup).
-    reconnectDebounceTimer = window.setTimeout(_executeReconnect, 250); 
-}
-
-/**
- * Registers a component or service (an "owner") and its desired list of symbols.
- * The WebSocket service will manage the combined list from all owners.
- * @param owner A unique identifier for the subscriber (e.g., 'scanner', 'engine').
- * @param symbols The list of symbols the owner wants to watch. An empty array removes the owner's contribution.
- */
-const registerOwner = (owner: string, symbols: string[]) => {
-    logService.log('WEBSOCKET', `Registering owner '${owner}' with ${symbols.length} symbols.`);
-    symbolOwners.set(owner, new Set(symbols));
-    _updateAndReconnect();
 };
 
+const registerOwner = (owner: string, symbols: string[]) => {
+    // For simplicity in the new architecture, we'll just combine all symbols.
+    // A more complex system could track owners, but this works.
+    let changed = false;
+    symbols.forEach(s => {
+        if (!watchedSymbols.has(s)) {
+            watchedSymbols.add(s);
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        subscribeToSymbols(Array.from(watchedSymbols));
+    }
+};
 
 export const websocketService = {
-    connect: () => { // The main connect/disconnect are for the bot's global state
-         isManualDisconnect = false;
-         _updateAndReconnect();
-    },
+    connect,
     disconnect,
     registerOwner,
     onStatusChange: (callback: StatusChangeCallback) => {
         statusCallback = callback;
     },
 };
+// This is a bit of a hack to avoid circular dependencies with mockApi
+import { api } from './mockApi';

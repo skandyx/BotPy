@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import { api } from '../services/mockApi';
+import { positionService } from '../services/positionService';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -20,6 +21,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const data = await api.checkSession();
         setIsAuthenticated(data.isAuthenticated);
+        if (data.isAuthenticated) {
+          const initialPositions = await api.fetchActivePositions();
+          positionService._initialize(initialPositions);
+        }
       } catch (error) {
         // If the server returns 401 Unauthorized, it's fine.
         console.log("No active session found.");
@@ -36,6 +41,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await api.login(password);
       if (response.success) {
         setIsAuthenticated(true);
+        const initialPositions = await api.fetchActivePositions();
+        positionService._initialize(initialPositions);
         return true;
       }
       return false;
@@ -48,6 +55,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async () => {
     try {
       await api.logout();
+      positionService.clearPositions();
     } catch (error) {
       console.error("Logout failed:", error);
     } finally {
