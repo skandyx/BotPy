@@ -62,6 +62,9 @@ USE_VOLUME_CONFIRMATION=true
 USE_MULTI_TIMEFRAME_CONFIRMATION=true
 USE_MARKET_REGIME_FILTER=true
 
+# Si activé, le bot n'ouvrira des positions que pour les signaux 'STRONG BUY', ignorant les signaux 'BUY' classiques.
+REQUIRE_STRONG_BUY=false
+
 # Après une transaction perdante sur un symbole, combien d'heures le bot doit-il attendre avant de pouvoir trader à nouveau ce symbole.
 LOSS_COOLDOWN_HOURS=4
 

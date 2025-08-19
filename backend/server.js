@@ -133,6 +133,7 @@ const loadData = async () => {
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
             USE_MULTI_TIMEFRAME_CONFIRMATION: process.env.USE_MULTI_TIMEFRAME_CONFIRMATION === 'true',
             USE_MARKET_REGIME_FILTER: process.env.USE_MARKET_REGIME_FILTER === 'true',
+            REQUIRE_STRONG_BUY: process.env.REQUIRE_STRONG_BUY === 'true',
             LOSS_COOLDOWN_HOURS: parseInt(process.env.LOSS_COOLDOWN_HOURS, 10) || 4,
             BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
             BINANCE_SECRET_KEY: process.env.BINANCE_SECRET_KEY || '',
@@ -278,14 +279,21 @@ class RealtimeAnalyzer {
             trend = newKline.close > sma20 ? 'UP' : 'DOWN';
         }
 
+        // --- SCORING LOGIC WITH MASTER FILTERS ---
+        let score = 'HOLD';
+        
+        // 1. Check master filters first. If they fail, score remains 'HOLD'.
+        const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
         const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
 
-        let score = 'HOLD';
-        if (trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isLongTermTrendConfirmed) {
-            if (rsi > 50 && rsi < 70) {
-                score = 'STRONG BUY';
-            } else if (rsi > 50) {
-                score = 'BUY';
+        // 2. Only if long-term context is bullish, check short-term signals.
+        if (isMarketRegimeOk && isLongTermTrendConfirmed) {
+            if (trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed) {
+                if (rsi > 50 && rsi < 70) {
+                    score = 'STRONG BUY';
+                } else if (rsi > 50) {
+                    score = 'BUY';
+                }
             }
         }
 
@@ -520,7 +528,11 @@ const tradingEngine = {
 
         for (const pair of botState.scannerCache) {
             // THE CORE TRADING DECISION IS NOW MADE HERE WITH REAL-TIME DATA
-            if (pair.score === 'STRONG BUY' || pair.score === 'BUY') {
+            const isStrongBuyRequired = botState.settings.REQUIRE_STRONG_BUY;
+            const isBuySignal = pair.score === 'BUY';
+            const isStrongBuySignal = pair.score === 'STRONG BUY';
+            
+            if (isStrongBuySignal || (!isStrongBuyRequired && isBuySignal)) {
                 const alreadyInPosition = botState.activePositions.some(p => p.symbol === pair.symbol);
                 if (alreadyInPosition) continue;
 

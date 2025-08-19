@@ -24,6 +24,7 @@ const tooltips: Record<string, string> = {
     USE_VOLUME_CONFIRMATION: "If enabled, a trade signal is only valid if the current trading volume is above its recent average, confirming market interest.",
     USE_MULTI_TIMEFRAME_CONFIRMATION: "A powerful filter. If enabled, a short-term buy signal (1-minute) is only valid if the long-term trend (4-hour) is also UP.",
     USE_MARKET_REGIME_FILTER: "A master filter. If enabled, the bot will only trade if the long-term market structure (based on 50/200 MAs on the 4h chart) is in a confirmed UPTREND.",
+    REQUIRE_STRONG_BUY: "If enabled, the bot will only open new trades for pairs with a 'STRONG BUY' score. It will ignore pairs with a regular 'BUY' score, making the strategy more selective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn: If a trade on a symbol is closed at a loss, the bot will be blocked from trading that same symbol for this number of hours.",
     EXCLUDED_PAIRS: "A comma-separated list of pairs to ignore completely, regardless of their volume (e.g., USDCUSDT,FDUSDUSDT).",
     BINANCE_API_KEY: "Your public API key from Binance. Required for REAL modes.",
@@ -259,6 +260,9 @@ const SettingsPage: React.FC = () => {
                     </SettingsField>
                     <SettingsField id="USE_MARKET_REGIME_FILTER" label="Use Market Regime Filter" formState={settings} handleChange={handleChange}>
                         <ToggleSwitch checked={settings.USE_MARKET_REGIME_FILTER} onChange={(val) => handleChange('USE_MARKET_REGIME_FILTER', val)} leftLabel="ON" rightLabel="OFF" />
+                    </SettingsField>
+                    <SettingsField id="REQUIRE_STRONG_BUY" label="Require 'Strong Buy' Only" formState={settings} handleChange={handleChange}>
+                        <ToggleSwitch checked={settings.REQUIRE_STRONG_BUY} onChange={(val) => handleChange('REQUIRE_STRONG_BUY', val)} leftLabel="ON" rightLabel="OFF" />
                     </SettingsField>
                  </div>
             </div>

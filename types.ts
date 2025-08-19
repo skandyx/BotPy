@@ -97,6 +97,7 @@ export interface BotSettings {
     USE_VOLUME_CONFIRMATION: boolean;
     USE_MULTI_TIMEFRAME_CONFIRMATION: boolean;
     USE_MARKET_REGIME_FILTER: boolean;
+    REQUIRE_STRONG_BUY: boolean;
     LOSS_COOLDOWN_HOURS: number;
     USE_TRAILING_STOP_LOSS: boolean;
     TRAILING_STOP_LOSS_PCT: number;
