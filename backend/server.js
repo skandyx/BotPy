@@ -40,8 +40,6 @@ app.use(session({
 const wss = new WebSocketServer({ noServer: true });
 const clients = new Set();
 server.on('upgrade', (request, socket, head) => {
-    // This function is called when a client attempts to upgrade the connection to WebSocket.
-    // We hand off the upgrade request to the WebSocket server.
     const { pathname } = new URL(request.url, `http://${request.headers.host}`);
     
     if (pathname === '/ws') {
@@ -122,6 +120,7 @@ const loadData = async () => {
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 400000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
+            COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
             COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 900,
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
@@ -136,7 +135,11 @@ const loadData = async () => {
     try {
         const stateContent = await fs.readFile(STATE_FILE_PATH, 'utf-8');
         const persistedState = JSON.parse(stateContent);
-        Object.assign(botState, persistedState);
+        botState.balance = persistedState.balance || botState.settings.INITIAL_VIRTUAL_BALANCE;
+        botState.activePositions = persistedState.activePositions || [];
+        botState.tradeHistory = persistedState.tradeHistory || [];
+        botState.tradeIdCounter = persistedState.tradeIdCounter || 1;
+        botState.isRunning = persistedState.isRunning !== undefined ? persistedState.isRunning : true;
     } catch {
         log("WARN", "state.json not found. Initializing default state.");
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
@@ -243,22 +246,21 @@ const runScannerLoop = async () => {
     try {
         const scannedPairs = await scannerService.runScan(botState.settings);
         botState.scannerCache = scannedPairs;
-        const symbolsToWatch = scannedPairs.map(p => p.symbol);
-        priceFeeder.updateSubscriptions(symbolsToWatch);
+        const symbolsToWatch = new Set([...scannedPairs.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
+        priceFeeder.updateSubscriptions(Array.from(symbolsToWatch));
     } catch (error) {
         log("ERROR", `Error during scanner run: ${error.message}`);
     }
 };
 
 // --- Trading Engine ---
-// ... (Trading Engine logic will be added here in a future step)
 const tradingEngine = {
     interval: null,
     start: function() {
         if (this.interval) return;
         log('TRADE', 'Trading Engine starting...');
         botState.isRunning = true;
-        this.interval = setInterval(this.tick.bind(this), 5000);
+        this.interval = setInterval(this.tick.bind(this), 5000); // Check every 5 seconds
         saveData('state');
         broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: true } });
     },
@@ -273,8 +275,130 @@ const tradingEngine = {
     },
     tick: async function() {
         if (!botState.isRunning) return;
-        // Mock logic for now
+
+        // 1. Manage existing positions
+        for (const position of [...botState.activePositions]) {
+            const currentPrice = priceFeeder.latestPrices.get(position.symbol);
+            if (!currentPrice) continue;
+
+            const pnl = (currentPrice - position.entry_price) * position.quantity;
+            const entryValue = position.entry_price * position.quantity;
+            const pnl_pct = entryValue !== 0 ? (pnl / entryValue) * 100 : 0;
+            
+            position.current_price = currentPrice;
+            position.pnl = pnl;
+            position.pnl_pct = pnl_pct;
+
+            // Update highest price for TSL
+            if (currentPrice > position.highest_price_since_entry) {
+                position.highest_price_since_entry = currentPrice;
+                if (botState.settings.USE_TRAILING_STOP_LOSS) {
+                    const newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
+                    if (newStopLoss > position.stop_loss) {
+                        position.stop_loss = newStopLoss;
+                        log('TRADE', `Trailing Stop Loss for ${position.symbol} updated to ${newStopLoss.toFixed(4)}`);
+                    }
+                }
+            }
+
+            if (currentPrice >= position.take_profit) {
+                this.closeTrade(position.id, currentPrice, 'Take Profit hit');
+                continue;
+            }
+            if (currentPrice <= position.stop_loss) {
+                this.closeTrade(position.id, currentPrice, 'Stop Loss hit');
+                continue;
+            }
+        }
+        
+        // 2. Look for new positions
+        if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) {
+            return;
+        }
+
+        for (const pair of botState.scannerCache) {
+            if (pair.score === 'STRONG BUY' || pair.score === 'BUY') {
+                const alreadyInPosition = botState.activePositions.some(p => p.symbol === pair.symbol);
+                if (alreadyInPosition) continue;
+
+                const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
+                if (cooldownInfo && Date.now() < cooldownInfo.until) {
+                    continue; // On cooldown
+                }
+
+                this.openTrade(pair);
+
+                if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) {
+                    break;
+                }
+            }
+        }
     },
+    openTrade: function(pair) {
+        const { settings, balance } = botState;
+        const positionSizeUSD = balance * (settings.POSITION_SIZE_PCT / 100);
+        const quantity = positionSizeUSD / pair.price;
+        
+        const entryPrice = pair.price * (1 + settings.SLIPPAGE_PCT / 100);
+        const cost = entryPrice * quantity;
+        
+        if (balance < cost) {
+            log('WARN', `Insufficient balance to open trade for ${pair.symbol}.`);
+            return;
+        }
+
+        botState.balance -= cost;
+        const newTrade = {
+            id: botState.tradeIdCounter++,
+            mode: 'VIRTUAL',
+            symbol: pair.symbol,
+            side: 'BUY',
+            entry_price: entryPrice,
+            quantity: quantity,
+            stop_loss: entryPrice * (1 - settings.STOP_LOSS_PCT / 100),
+            take_profit: entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100),
+            highest_price_since_entry: entryPrice,
+            entry_time: new Date().toISOString(),
+            status: 'FILLED',
+        };
+        botState.activePositions.push(newTrade);
+        priceFeeder.updateSubscriptions([...priceFeeder.subscribedSymbols, newTrade.symbol]); // Ensure we're watching the price
+        
+        log('TRADE', `OPENED LONG: ${pair.symbol} | Qty: ${quantity.toFixed(4)} @ ${entryPrice.toFixed(4)} | Value: $${cost.toFixed(2)}`);
+        saveData('state');
+        broadcast({ type: 'POSITIONS_UPDATED' });
+    },
+    closeTrade: function(tradeId, exitPrice, reason) {
+        const tradeIndex = botState.activePositions.findIndex(t => t.id === tradeId);
+        if (tradeIndex === -1) return null;
+
+        const trade = botState.activePositions[tradeIndex];
+        const exitValue = exitPrice * trade.quantity;
+        const entryValue = trade.entry_price * trade.quantity;
+        const pnl = exitValue - entryValue;
+
+        botState.balance += exitValue;
+
+        trade.exit_price = exitPrice;
+        trade.exit_time = new Date().toISOString();
+        trade.status = 'CLOSED';
+        trade.pnl = pnl;
+        trade.pnl_pct = (pnl / entryValue) * 100;
+        
+        botState.tradeHistory.push(trade);
+        botState.activePositions.splice(tradeIndex, 1);
+
+        if (pnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
+            const cooldownUntil = Date.now() + botState.settings.LOSS_COOLDOWN_HOURS * 60 * 60 * 1000;
+            botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
+            log('TRADE', `${trade.symbol} is on cooldown until ${new Date(cooldownUntil).toLocaleTimeString()} due to loss.`);
+        }
+
+        log('TRADE', `CLOSED: ${trade.symbol} @ ${exitPrice.toFixed(4)} | PnL: $${pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) | Reason: ${reason}`);
+        saveData('state');
+        broadcast({ type: 'POSITIONS_UPDATED' });
+        return trade;
+    }
 };
 
 // --- Auth Middleware & API Endpoints ---
@@ -296,9 +420,16 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/check-session', (req, res) => res.json({ isAuthenticated: !!req.session.isAuthenticated }));
 app.get('/api/settings', isAuthenticated, (req, res) => res.json(botState.settings));
 app.post('/api/settings', isAuthenticated, async (req, res) => {
+    const oldSyncSeconds = botState.settings.COINGECKO_SYNC_SECONDS;
     botState.settings = { ...botState.settings, ...req.body };
     await saveData('settings');
     log('INFO', 'Bot settings have been updated.');
+    // If sync interval changed, we need to restart the scanner loop
+    if (oldSyncSeconds !== botState.settings.COINGECKO_SYNC_SECONDS) {
+        log('INFO', 'Scanner interval updated. Restarting scanner loop.');
+        clearInterval(scannerInterval);
+        scannerInterval = setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    }
     res.json({ success: true });
 });
 app.post('/api/clear-data', isAuthenticated, async (req, res) => {
@@ -325,6 +456,20 @@ app.get('/api/scanner', isAuthenticated, (req, res) => {
     res.json(dataWithPrices);
 });
 app.get('/api/positions', isAuthenticated, (req, res) => res.json(botState.activePositions));
+app.post('/api/close-trade/:tradeId', isAuthenticated, (req, res) => {
+    const tradeId = parseInt(req.params.tradeId, 10);
+    const position = botState.activePositions.find(p => p.id === tradeId);
+    if (!position) {
+        return res.status(404).json({ success: false, message: 'Position not found' });
+    }
+    const currentPrice = priceFeeder.latestPrices.get(position.symbol) || position.entry_price;
+    const closedTrade = tradingEngine.closeTrade(tradeId, currentPrice, 'Manual Close');
+    if (closedTrade) {
+        res.json(closedTrade);
+    } else {
+        res.status(500).json({ success: false, message: 'Failed to close trade' });
+    }
+});
 app.get('/api/history', isAuthenticated, (req, res) => res.json(botState.tradeHistory));
 app.get('/api/status', isAuthenticated, (req, res) => {
     res.json({
@@ -383,14 +528,13 @@ app.post('/api/bot/stop', isAuthenticated, (req, res) => {
 });
 
 // --- Startup ---
+let scannerInterval;
 server.listen(port, async () => {
     await loadData();
     log('INFO', `Backend server running on http://localhost:${port}`);
-    setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    scannerInterval = setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
     await runScannerLoop();
     if (botState.isRunning) {
         tradingEngine.start();
     }
-    const initialSymbols = botState.activePositions.map(p => p.symbol);
-    priceFeeder.updateSubscriptions(initialSymbols);
 });

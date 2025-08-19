@@ -47,13 +47,21 @@ export class ScannerService {
 
     async discoverPairsFromCoinGecko(settings) {
         this.log('COINGECKO', 'Fetching high-volume pairs from CoinGecko...');
-        const url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc&per_page=250&page=1&sparkline=false';
-        const response = await fetch(url);
+        const useProApi = !!settings.COINGECKO_API_KEY;
+        const baseApiUrl = useProApi ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+        let url = `${baseApiUrl}/coins/markets?vs_currency=usd&order=volume_desc&per_page=250&page=1&sparkline=false`;
+
+        const headers = {};
+        if (useProApi) {
+            headers['x-cg-pro-api-key'] = settings.COINGECKO_API_KEY;
+        }
+
+        const response = await fetch(url, { headers });
         if (!response.ok) throw new Error(`CoinGecko API error! status: ${response.status}`);
         const markets = await response.json();
         
         const usdtPairs = markets
-            .filter(m => m.symbol.toLowerCase() !== 'usdt')
+            .filter(m => m.symbol.toLowerCase() !== 'usdt' && m.symbol.toLowerCase() !== 'usd')
             .map(m => ({
                 symbol: `${m.symbol.toUpperCase()}USDT`,
                 price: m.current_price, // Initial price from CoinGecko
@@ -71,10 +79,12 @@ export class ScannerService {
 
         const binanceVolumeMap = new Map();
         allTickers.forEach(t => {
-            binanceVolumeMap.set(t.symbol, {
-                volume: parseFloat(t.quoteVolume),
-                price: parseFloat(t.lastPrice)
-            });
+            if(t.symbol.endsWith('USDT')) {
+                binanceVolumeMap.set(t.symbol, {
+                    volume: parseFloat(t.quoteVolume),
+                    price: parseFloat(t.lastPrice)
+                });
+            }
         });
 
         const excluded = settings.EXCLUDED_PAIRS.split(',').map(p => p.trim());
@@ -121,15 +131,20 @@ export class ScannerService {
             trend4h = lastSma50 > lastSma200 ? 'UP' : 'DOWN';
         }
 
+        // Apply master market regime filter
+        if (settings.USE_MARKET_REGIME_FILTER && marketRegime !== 'UPTREND') {
+             return { score: 'HOLD', trend_4h: trend4h, marketRegime }; // Return minimal data if filtered out
+        }
+
         return {
             priceDirection: 'neutral',
-            trend: 'NEUTRAL',
+            trend: 'NEUTRAL', // This will be calculated from 1m data later if needed
             trend_4h: trend4h,
             marketRegime,
-            rsi: 50,
-            adx: 0,
-            score: 'HOLD',
-            volatility: 0,
+            rsi: 50, // Placeholder
+            adx: 0, // Placeholder
+            score: 'BUY', // Default to BUY if it passes the 4h filters
+            volatility: 0, // Placeholder
         };
     }
 
@@ -145,7 +160,7 @@ export class ScannerService {
                 lastTimestamp = klines[klines.length - 1].timestamp;
             }
         } catch {
-            this.log('SCANNER', `No kline data found for ${symbol}. Fetching initial history.`);
+            // File doesn't exist, will fetch full history
         }
 
         const binanceKlines = await this.fetchKlinesFromBinance(symbol, lastTimestamp);
@@ -160,13 +175,11 @@ export class ScannerService {
         }));
 
         if (newKlines.length > 0) {
-            // If we had existing klines, the first new kline might be an update to the last saved one.
             if (klines.length > 0 && klines[klines.length - 1].timestamp === newKlines[0].timestamp) {
-                klines[klines.length - 1] = newKlines.shift(); // Replace last element
+                klines[klines.length - 1] = newKlines.shift();
             }
             klines.push(...newKlines);
             
-            // Keep the array at a max of 200 candles for analysis
             if(klines.length > 200) {
                 klines = klines.slice(klines.length - 200);
             }
@@ -178,14 +191,13 @@ export class ScannerService {
     }
 
     async fetchKlinesFromBinance(symbol, startTime = 0) {
-        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=200`;
+        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=201`;
         if (startTime > 0) {
-            // Fetch klines since the last one we have
-            url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&startTime=${startTime}`;
+            url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&startTime=${startTime + 1}`;
         }
         
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol}`);
+        if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol} from Binance`);
         return response.json();
     }
 }

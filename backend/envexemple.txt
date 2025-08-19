@@ -65,9 +65,12 @@ USE_MARKET_REGIME_FILTER=true
 # Après une transaction perdante sur un symbole, combien d'heures le bot doit-il attendre avant de pouvoir trader à nouveau ce symbole.
 LOSS_COOLDOWN_HOURS=4
 
-# --- BINANCE API CREDENTIALS ---
+# --- API CREDENTIALS ---
 # Votre clé API publique de Binance.
 BINANCE_API_KEY=votre_cle_api_binance
 
 # Votre clé API secrète de Binance.
 BINANCE_SECRET_KEY=votre_cle_secrete_binance
+
+# (Optionnel mais recommandé) Votre clé API de CoinGecko pour des appels plus fiables.
+COINGECKO_API_KEY=

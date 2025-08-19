@@ -19,6 +19,7 @@ const tooltips: Record<string, string> = {
     SLIPPAGE_PCT: "A small percentage to simulate the difference between the expected and actual execution price of a trade in a live market.",
     MIN_VOLUME_USD: "The minimum 24-hour trading volume a pair must have to be considered by the scanner. Filters out illiquid markets.",
     MIN_VOLATILITY_PCT: "The minimum price volatility a pair must have to be considered for a trade. Avoids entering trades in flat, sideways markets.",
+    COINGECKO_API_KEY: "Your CoinGecko API key (e.g., from the free 'Demo' plan). Using a key provides more reliable and faster API responses for market scanning.",
     COINGECKO_SYNC_SECONDS: "How often (in seconds) the bot should fetch new market-wide data from CoinGecko to update the list of scannable pairs.",
     USE_VOLUME_CONFIRMATION: "If enabled, a trade signal is only valid if the current trading volume is above its recent average, confirming market interest.",
     USE_MULTI_TIMEFRAME_CONFIRMATION: "A powerful filter. If enabled, a short-term buy signal (1-minute) is only valid if the long-term trend (4-hour) is also UP.",
@@ -167,7 +168,7 @@ const SettingsPage: React.FC = () => {
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-white">Bot Settings</h2>
                 <div className="flex items-center space-x-4">
-                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('cleared') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
+                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('cleared') || saveMessage.includes('successful') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
                     <button onClick={handleSave} disabled={isSaving || isClearing || isTesting} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isSaving ? 'Saving...' : 'Save All Settings'}
                     </button>
@@ -196,9 +197,12 @@ const SettingsPage: React.FC = () => {
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
                     <SettingsField id="MIN_VOLUME_USD" label="Min Volume (USD)" type="number" formState={settings} handleChange={handleChange} />
                     <SettingsField id="MIN_VOLATILITY_PCT" label="Min Volatility (%)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="COINGECKO_SYNC_SECONDS" label="CoinGecko Sync (seconds)" type="number" formState={settings} handleChange={handleChange} />
+                    <SettingsField id="COINGECKO_SYNC_SECONDS" label="Scanner Sync (seconds)" type="number" formState={settings} handleChange={handleChange} />
                     <SettingsField id="LOSS_COOLDOWN_HOURS" label="Loss Cooldown (Hours)" type="number" formState={settings} handleChange={handleChange} />
-                    <div className="md:col-span-2">
+                     <div className="lg:col-span-2">
+                        <SettingsField id="COINGECKO_API_KEY" label="CoinGecko API Key" formState={settings} handleChange={handleChange} />
+                    </div>
+                    <div className="md:col-span-2 lg:col-span-3">
                         <SettingsField id="EXCLUDED_PAIRS" label="Exclude Pairs (comma-separated)" formState={settings} handleChange={handleChange} />
                     </div>
                  </div>
