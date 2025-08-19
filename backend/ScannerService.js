@@ -14,14 +14,6 @@ export class ScannerService {
         try {
             // Step 1 & 2 Combined: Discover and filter pairs directly from Binance
             const binancePairs = await this.discoverAndFilterPairsFromBinance(settings);
-            
-            // Resilience: If the API call fails, binancePairs will be null.
-            // In this case, we abort the scan for this cycle to keep the old data.
-            if (!binancePairs) {
-                this.log('WARN', 'Scan cycle aborted due to Binance API failure. Retaining previous data.');
-                return null; // Signal to the caller that the scan failed
-            }
-
             if (binancePairs.length === 0) {
                 this.log('WARN', 'No pairs found on Binance meeting the volume and exclusion criteria. Ending scan cycle.');
                 return [];
@@ -47,7 +39,7 @@ export class ScannerService {
 
         } catch (error) {
             this.log('ERROR', `Scanner cycle failed unexpectedly: ${error.stack}`);
-            throw error; // Propagate the error
+            return [];
         }
     }
 
@@ -86,7 +78,7 @@ export class ScannerService {
             return result;
         } catch (error) {
             this.log('ERROR', `Failed to discover pairs from Binance ticker API: ${error.message}`);
-            return null; // Return null on failure to signal an issue
+            return [];
         }
     }
     
@@ -192,8 +184,6 @@ export class ScannerService {
             url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&startTime=${startTime + 1}`;
         }
         
-        this.log('BINANCE_API', `Fetching 4h klines for ${symbol}...`);
-
         try {
             const response = await fetch(url);
             if (!response.ok) {
