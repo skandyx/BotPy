@@ -9,41 +9,41 @@ import Modal from '../components/common/Modal';
 
 // --- HELPERS ---
 const tooltips: Record<string, string> = {
-    INITIAL_VIRTUAL_BALANCE: "The starting capital for your virtual trading account. This amount is applied when you clear all trade data.",
-    MAX_OPEN_POSITIONS: "The maximum number of trades the bot can have open at the same time. Helps control overall risk exposure.",
-    POSITION_SIZE_PCT: "The percentage of your total balance to use for each new trade. (e.g., 2% on a $10,000 balance will result in $200 positions).",
-    TAKE_PROFIT_PCT: "The percentage of profit at which a trade will be automatically closed. This is the initial target if Trailing Stop Loss is disabled.",
-    STOP_LOSS_PCT: "The percentage of loss at which a trade will be automatically closed to prevent further losses. This is the maximum risk per trade.",
-    USE_TRAILING_STOP_LOSS: "Enables a dynamic stop loss that moves up to lock in profits as the price increases, but never moves down.",
-    TRAILING_STOP_LOSS_PCT: "The percentage below the highest price at which the trailing stop loss will be set. A smaller value is tighter, a larger value is looser.",
-    SLIPPAGE_PCT: "A small percentage to simulate the difference between the expected and actual execution price of a trade in a live market.",
-    MIN_VOLUME_USD: "The minimum 24-hour trading volume a pair must have to be considered by the scanner. Filters out illiquid markets.",
-    MIN_VOLATILITY_PCT: "The minimum price volatility a pair must have to be considered for a trade. Avoids entering trades in flat, sideways markets.",
-    COINGECKO_API_KEY: "Your CoinGecko API key (e.g., from the free 'Demo' plan). Using a key provides more reliable and faster API responses for market scanning.",
-    COINGECKO_SYNC_SECONDS: "How often (in seconds) the bot should perform a full market scan to discover and analyze pairs based on their 4h chart data.",
-    USE_VOLUME_CONFIRMATION: "If enabled, a trade signal is only valid if the current trading volume is above its recent average, confirming market interest.",
-    USE_MULTI_TIMEFRAME_CONFIRMATION: "A powerful filter. If enabled, a short-term buy signal (1-minute) is only valid if the long-term trend (4-hour) is also UP.",
-    USE_MARKET_REGIME_FILTER: "A master filter. If enabled, the bot will only trade if the long-term market structure (based on 50/200 MAs on the 4h chart) is in a confirmed UPTREND.",
-    REQUIRE_STRONG_BUY: "If enabled, the bot will only open new trades for pairs with a 'STRONG BUY' score. It will ignore pairs with a regular 'BUY' score, making the strategy more selective.",
-    LOSS_COOLDOWN_HOURS: "Anti-Churn: If a trade on a symbol is closed at a loss, the bot will be blocked from trading that same symbol for this number of hours.",
-    EXCLUDED_PAIRS: "A comma-separated list of pairs to ignore completely, regardless of their volume (e.g., USDCUSDT,FDUSDUSDT).",
-    BINANCE_API_KEY: "Your public Binance API key. Required for live and paper trading modes.",
-    BINANCE_SECRET_KEY: "Your secret Binance API key. This is stored securely on the server and is never exposed to the frontend.",
-    USE_ATR_STOP_LOSS: "Use a dynamic Stop Loss based on the Average True Range (ATR), which adapts to market volatility instead of a fixed percentage.",
-    ATR_MULTIPLIER: "The multiplier to apply to the ATR value to set the Stop Loss distance (e.g., 1.5 means SL will be 1.5 * ATR below entry price).",
-    USE_AUTO_BREAKEVEN: "Automatically move the Stop Loss to the entry price once a trade is in profit, eliminating the risk of loss.",
-    BREAKEVEN_TRIGGER_R: "The profit level (as a multiple of initial risk 'R') at which to trigger the move to break-even (e.g., 1.0 means when profit equals initial risk).",
-    USE_RSI_OVERBOUGHT_FILTER: "Prevent opening new trades if the RSI is in the 'overbought' zone, avoiding buying at a potential local top.",
-    RSI_OVERBOUGHT_THRESHOLD: "The RSI level above which a trade signal will be ignored (e.g., 70).",
-    USE_MACD_CONFIRMATION: "Require a confirmation from the MACD indicator (e.g., a positive histogram) before opening a trade, adding a layer of momentum validation.",
-    USE_PARTIAL_TAKE_PROFIT: "Sell a portion of the position at a preliminary profit target and let the remainder run with the trailing stop loss.",
-    PARTIAL_TP_TRIGGER_PCT: "The profit percentage (%) at which to sell the first part of the position.",
-    PARTIAL_TP_SELL_QTY_PCT: "The percentage (%) of the initial position quantity to sell for the partial take profit.",
-    USE_DYNAMIC_POSITION_SIZING: "Allocate a larger position size for the highest quality 'STRONG BUY' signals compared to regular 'BUY' signals.",
-    STRONG_BUY_POSITION_SIZE_PCT: "The percentage of your balance to use for a 'STRONG BUY' signal if dynamic sizing is enabled.",
-    USE_ML_MODEL_FILTER: "If enabled, the bot will require a confirmation from the internal Machine Learning model (ML Prediction must be 'UP' with a high score) before opening a trade.",
-    USE_CORRELATION_FILTER: "(Future Feature) Prevent opening trades on multiple, highly-correlated pairs at the same time to diversify risk.",
-    USE_NEWS_FILTER: "(Future Feature) Automatically pause the bot during major economic news events to avoid extreme volatility."
+    INITIAL_VIRTUAL_BALANCE: "Le capital de départ pour votre compte de trading virtuel. Ce montant est appliqué lorsque vous effacez toutes les données de trading.",
+    MAX_OPEN_POSITIONS: "Le nombre maximum de trades que le bot peut avoir ouverts en même temps. Aide à contrôler l'exposition globale au risque.",
+    POSITION_SIZE_PCT: "Le pourcentage de votre solde total à utiliser pour chaque nouveau trade. (ex: 2% sur un solde de 10 000 $ se traduira par des positions de 200 $).",
+    TAKE_PROFIT_PCT: "Le pourcentage de profit auquel un trade sera automatiquement clôturé. C'est l'objectif initial si le Trailing Stop Loss est désactivé.",
+    STOP_LOSS_PCT: "Le pourcentage de perte auquel un trade sera automatiquement clôturé pour éviter de nouvelles pertes. C'est le risque maximum par trade.",
+    USE_TRAILING_STOP_LOSS: "Active un stop loss dynamique qui monte pour sécuriser les profits à mesure que le prix augmente, mais ne descend jamais.",
+    TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
+    SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
+    MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
+    MIN_VOLATILITY_PCT: "La volatilité de prix minimale qu'une paire doit avoir pour être considérée pour un trade. Évite d'entrer dans des trades sur des marchés plats et latéraux.",
+    COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
+    COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
+    USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
+    USE_MULTI_TIMEFRAME_CONFIRMATION: "Un filtre puissant. Si activé, un signal d'achat à court terme (1 minute) n'est valide que si la tendance à long terme (4 heures) est également en HAUSSE.",
+    USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si la structure du marché à long terme (basée sur les MA 50/200 sur le graphique 4h) est dans une TENDANCE HAUSSIÈRE confirmée.",
+    REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
+    LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
+    EXCLUDED_PAIRS: "Une liste de paires séparées par des virgules à ignorer complètement, quel que soit leur volume (par exemple, USDCUSDT,FDUSDUSDT).",
+    BINANCE_API_KEY: "Votre clé API publique Binance. Requise pour les modes de trading live et paper.",
+    BINANCE_SECRET_KEY: "Votre clé API secrète Binance. Elle est stockée en toute sécurité sur le serveur et n'est jamais exposée au frontend.",
+    USE_ATR_STOP_LOSS: "Utiliser un Stop Loss dynamique basé sur l'Average True Range (ATR), qui s'adapte à la volatilité du marché au lieu d'un pourcentage fixe.",
+    ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
+    USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
+    BREAKEVEN_TRIGGER_R: "Le niveau de profit (en multiple du risque initial 'R') auquel déclencher le passage au seuil de rentabilité (ex: 1.0 signifie lorsque le profit est égal au risque initial).",
+    USE_RSI_OVERBOUGHT_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
+    RSI_OVERBOUGHT_THRESHOLD: "Le niveau RSI au-dessus duquel un signal de trade sera ignoré (ex: 70).",
+    USE_MACD_CONFIRMATION: "Exiger une confirmation de l'indicateur MACD (par exemple, un histogramme positif) avant d'ouvrir un trade, ajoutant une couche de validation de momentum.",
+    USE_PARTIAL_TAKE_PROFIT: "Vendre une partie de la position à un objectif de profit préliminaire et laisser le reste courir avec le trailing stop loss.",
+    PARTIAL_TP_TRIGGER_PCT: "Le pourcentage de profit (%) auquel vendre la première partie de la position.",
+    PARTIAL_TP_SELL_QTY_PCT: "Le pourcentage (%) de la quantité de position initiale à vendre pour la prise de profit partielle.",
+    USE_DYNAMIC_POSITION_SIZING: "Allouer une taille de position plus importante pour les signaux 'STRONG BUY' de la plus haute qualité par rapport aux signaux 'BUY' réguliers.",
+    STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
+    USE_ML_MODEL_FILTER: "Si activé, le bot exigera une confirmation du modèle d'Apprentissage Automatique interne (la prédiction ML doit être 'HAUSSE' avec un score élevé) avant d'ouvrir un trade.",
+    USE_CORRELATION_FILTER: "(Fonctionnalité future) Empêcher l'ouverture de trades sur plusieurs paires fortement corrélées en même temps pour diversifier le risque.",
+    USE_NEWS_FILTER: "(Fonctionnalité future) Mettre automatiquement en pause le bot lors d'événements d'actualité économique majeurs pour éviter une volatilité extrême."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -67,7 +67,7 @@ const SettingsPage: React.FC = () => {
             setSettings(data);
         } catch (error) {
             console.error("Failed to load settings", error);
-            showMessage("Error: Could not load settings from server.", 'error');
+            showMessage("Erreur : Impossible de charger les paramètres depuis le serveur.", 'error');
         } finally {
             setIsLoading(false);
         }
@@ -94,9 +94,9 @@ const SettingsPage: React.FC = () => {
         try {
             await api.updateSettings(settings);
             incrementSettingsActivity();
-            showMessage('Settings saved successfully!');
+            showMessage("Paramètres sauvegardés avec succès !");
         } catch (error: any) {
-            showMessage(`Failed to save settings: ${error.message}`, 'error');
+            showMessage(`Échec de la sauvegarde des paramètres : ${error.message}`, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -104,7 +104,7 @@ const SettingsPage: React.FC = () => {
 
     const handleTestCoinGeckoConnection = async () => {
         if (!settings || !settings.COINGECKO_API_KEY) {
-            showMessage('Please enter a CoinGecko API key first.', 'error');
+            showMessage("Veuillez d'abord entrer une clé API CoinGecko.", 'error');
             return;
         }
         setIsTestingCoinGecko(true);
@@ -112,7 +112,7 @@ const SettingsPage: React.FC = () => {
             const result = await api.testCoinGeckoConnection(settings.COINGECKO_API_KEY);
             showMessage(result.message, result.success ? 'success' : 'error');
         } catch (error: any) {
-            showMessage(error.message || 'CoinGecko connection failed.', 'error');
+            showMessage(error.message || 'La connexion à CoinGecko a échoué.', 'error');
         } finally {
             setIsTestingCoinGecko(false);
         }
@@ -120,7 +120,7 @@ const SettingsPage: React.FC = () => {
 
     const handleTestBinanceConnection = async () => {
         if (!settings || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY) {
-             showMessage('Please enter both Binance API and Secret keys.', 'error');
+             showMessage("Veuillez entrer les clés API et secrète de Binance.", 'error');
             return;
         }
         setIsTestingBinance(true);
@@ -128,7 +128,7 @@ const SettingsPage: React.FC = () => {
             const result = await api.testBinanceConnection(settings.BINANCE_API_KEY, settings.BINANCE_SECRET_KEY);
             showMessage(result.message, result.success ? 'success' : 'error');
         } catch (error: any) {
-            showMessage(error.message || 'Binance connection test failed.', 'error');
+            showMessage(error.message || 'Le test de connexion à Binance a échoué.', 'error');
         } finally {
             setIsTestingBinance(false);
         }
@@ -136,11 +136,11 @@ const SettingsPage: React.FC = () => {
 
     const handleUpdatePassword = async () => {
         if (!newPassword) {
-            showMessage('Password cannot be empty.', 'error');
+            showMessage("Le mot de passe ne peut pas être vide.", 'error');
             return;
         }
         if (newPassword !== confirmPassword) {
-            showMessage('Passwords do not match.', 'error');
+            showMessage("Les mots de passe ne correspondent pas.", 'error');
             return;
         }
         setIsSaving(true);
@@ -152,7 +152,7 @@ const SettingsPage: React.FC = () => {
                 setConfirmPassword('');
             }
         } catch (error: any) {
-            showMessage(error.message || 'Failed to update password.', 'error');
+            showMessage(error.message || "Échec de la mise à jour du mot de passe.", 'error');
         } finally {
             setIsSaving(false);
         }
@@ -163,11 +163,11 @@ const SettingsPage: React.FC = () => {
         setIsSaving(true);
         try {
             await api.clearAllTradeData();
-            showMessage('All trade data has been cleared.');
+            showMessage("Toutes les données de trading ont été effacées.");
             refreshData(); 
             loadSettings();
         } catch (error: any) {
-            showMessage(`Failed to clear data: ${error.message}`, 'error');
+            showMessage(`Échec de l'effacement des données : ${error.message}`, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -219,43 +219,43 @@ const SettingsPage: React.FC = () => {
         <>
         <div className="space-y-6">
             <div className="flex justify-between items-start">
-                <h2 className="text-3xl font-bold text-white">Settings</h2>
+                <h2 className="text-3xl font-bold text-white">Paramètres</h2>
                 <div className="flex items-center space-x-4 flex-shrink-0">
                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.type === 'success' ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage.text}</p>}
                     <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
-                        {isSaving ? 'Saving...' : 'Save All Settings'}
+                        {isSaving ? "Sauvegarde..." : "Sauvegarder les Paramètres"}
                     </button>
                 </div>
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-8">
                 <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Bot Settings</h3>
+                    <h3 className="text-lg font-semibold text-white mb-4">Paramètres du Bot</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {renderField('INITIAL_VIRTUAL_BALANCE', 'Initial Virtual Balance ($)')}
-                        {renderField('MAX_OPEN_POSITIONS', 'Max Open Positions')}
-                        {renderField('POSITION_SIZE_PCT', 'Position Size (%)')}
-                        {renderField('TAKE_PROFIT_PCT', 'Take Profit (%)')}
-                        {renderField('STOP_LOSS_PCT', 'Stop Loss (%)')}
-                        {renderField('SLIPPAGE_PCT', 'Slippage (%)')}
+                        {renderField('INITIAL_VIRTUAL_BALANCE', "Solde Virtuel Initial ($)")}
+                        {renderField('MAX_OPEN_POSITIONS', "Positions Ouvertes Max")}
+                        {renderField('POSITION_SIZE_PCT', "Taille de Position (%)")}
+                        {renderField('TAKE_PROFIT_PCT', "Take Profit (%)")}
+                        {renderField('STOP_LOSS_PCT', "Stop Loss (%)")}
+                        {renderField('SLIPPAGE_PCT', "Slippage (%)")}
                     </div>
                     <hr className="border-[#2b2f38] my-6" />
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-                        {renderToggle('USE_TRAILING_STOP_LOSS', 'Use Trailing Stop Loss')}
-                        {renderField('TRAILING_STOP_LOSS_PCT', 'Trailing Stop Loss (%)')}
+                        {renderToggle('USE_TRAILING_STOP_LOSS', "Utiliser le Trailing Stop Loss")}
+                        {renderField('TRAILING_STOP_LOSS_PCT', "Trailing Stop Loss (%)")}
                     </div>
                 </div>
 
                 <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Market Scanner & Strategy Filters</h3>
+                    <h3 className="text-lg font-semibold text-white mb-4">Scanner de Marché & Filtres Stratégiques</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                       {renderField('MIN_VOLUME_USD', 'Min Volume (USD)')}
-                       {renderField('MIN_VOLATILITY_PCT', 'Min Volatility (%)')}
-                       {renderField('COINGECKO_SYNC_SECONDS', 'Scanner Sync (seconds)')}
-                       {renderField('LOSS_COOLDOWN_HOURS', 'Loss Cooldown (Hours)')}
+                       {renderField('MIN_VOLUME_USD', "Volume Min (USD)")}
+                       {renderField('MIN_VOLATILITY_PCT', "Volatilité Min (%)")}
+                       {renderField('COINGECKO_SYNC_SECONDS', "Synchro Scanner (secondes)")}
+                       {renderField('LOSS_COOLDOWN_HOURS', "Cooldown sur Perte (Heures)")}
                         <div className="md:col-span-2">
                              <label htmlFor="COINGECKO_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                                <span>CoinGecko API Key</span>
+                                <span>Clé API CoinGecko</span>
                                 {tooltips['COINGECKO_API_KEY'] && <Tooltip text={tooltips['COINGECKO_API_KEY']} />}
                             </label>
                             <div className="mt-1 flex rounded-md shadow-sm">
@@ -272,85 +272,85 @@ const SettingsPage: React.FC = () => {
                                     disabled={isAnyActionInProgress || !settings.COINGECKO_API_KEY}
                                     className="inline-flex items-center rounded-r-md border border-l-0 border-[#3e4451] bg-gray-600 px-3 py-2 text-xs font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {isTestingCoinGecko ? 'Testing...' : 'Test'}
+                                    {isTestingCoinGecko ? "Test..." : "Tester"}
                                 </button>
                             </div>
                         </div>
                         <div className="md:col-span-3">
-                            {renderField('EXCLUDED_PAIRS', 'Exclude Pairs (comma-separated)', 'text')}
+                            {renderField('EXCLUDED_PAIRS', "Paires Exclues (séparées par des virgules)", 'text')}
                         </div>
                     </div>
                     <hr className="border-[#2b2f38] my-6" />
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {renderToggle('USE_VOLUME_CONFIRMATION', 'Use Volume Confirmation')}
-                        {renderToggle('USE_MULTI_TIMEFRAME_CONFIRMATION', 'Use Multi-Timeframe Confirmation')}
-                        {renderToggle('USE_MARKET_REGIME_FILTER', 'Use Market Regime Filter')}
-                        {renderToggle('REQUIRE_STRONG_BUY', "Require 'Strong Buy' Only")}
+                        {renderToggle('USE_VOLUME_CONFIRMATION', "Conf. par le Volume")}
+                        {renderToggle('USE_MULTI_TIMEFRAME_CONFIRMATION', "Conf. Multi-Timeframe")}
+                        {renderToggle('USE_MARKET_REGIME_FILTER', "Filtre de Régime de Marché")}
+                        {renderToggle('REQUIRE_STRONG_BUY', "Exiger 'Strong Buy' Uniquement")}
                     </div>
                 </div>
             </div>
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-white">Advanced Strategy & Risk Management</h3>
+                <h3 className="text-lg font-semibold text-white">Stratégie Avancée & Gestion des Risques</h3>
                  <div className="space-y-6">
                     {/* --- Defense --- */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Defense</div>
-                        {renderToggle('USE_ATR_STOP_LOSS', 'Use ATR Stop Loss')}
-                        {renderField('ATR_MULTIPLIER', 'ATR Multiplier')}
+                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Défense</div>
+                        {renderToggle('USE_ATR_STOP_LOSS', "Utiliser le Stop Loss ATR")}
+                        {renderField('ATR_MULTIPLIER', "Multiplicateur ATR")}
                         <div></div>
-                        {renderToggle('USE_AUTO_BREAKEVEN', 'Use Auto Break-even')}
-                        {renderField('BREAKEVEN_TRIGGER_R', 'Break-even Trigger (R)')}
+                        {renderToggle('USE_AUTO_BREAKEVEN', "Utiliser l'Auto Break-even")}
+                        {renderField('BREAKEVEN_TRIGGER_R', "Déclencheur Break-even (R)")}
                         <div></div>
-                        {renderToggle('USE_RSI_OVERBOUGHT_FILTER', 'Use RSI Overbought Filter')}
-                        {renderField('RSI_OVERBOUGHT_THRESHOLD', 'RSI Overbought Threshold')}
+                        {renderToggle('USE_RSI_OVERBOUGHT_FILTER', "Utiliser le filtre RSI Surachat")}
+                        {renderField('RSI_OVERBOUGHT_THRESHOLD', "Seuil RSI Surachat")}
                     </div>
                     {/* --- Gains Optimization --- */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Gains Optimization</div>
-                        {renderToggle('USE_PARTIAL_TAKE_PROFIT', 'Use Partial Take Profit')}
-                        {renderField('PARTIAL_TP_TRIGGER_PCT', 'Partial TP Trigger (%)')}
-                        {renderField('PARTIAL_TP_SELL_QTY_PCT', 'Partial TP Sell Qty (%)')}
-                        {renderToggle('USE_MACD_CONFIRMATION', 'Use MACD Confirmation')}
+                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Optimisation des Gains</div>
+                        {renderToggle('USE_PARTIAL_TAKE_PROFIT', "Utiliser le Take Profit Partiel")}
+                        {renderField('PARTIAL_TP_TRIGGER_PCT', "Déclencheur TP Partiel (%)")}
+                        {renderField('PARTIAL_TP_SELL_QTY_PCT', "Qté Vendue TP Partiel (%)")}
+                        {renderToggle('USE_MACD_CONFIRMATION', "Utiliser la Confirmation MACD")}
                     </div>
                      {/* --- Expert --- */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
                         <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Expert</div>
-                        {renderToggle('USE_DYNAMIC_POSITION_SIZING', 'Use Dynamic Position Sizing')}
-                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', 'Strong Buy Position Size (%)')}
+                        {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
+                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
                         <div></div>
-                        {renderToggle('USE_ML_MODEL_FILTER', 'Use ML Model Filter')}
-                        {renderToggle('USE_CORRELATION_FILTER', 'Use Correlation Filter')}
-                        {renderToggle('USE_NEWS_FILTER', 'Use News Filter')}
+                        {renderToggle('USE_ML_MODEL_FILTER', "Utiliser le filtre du modèle ML")}
+                        {renderToggle('USE_CORRELATION_FILTER', "Utiliser le filtre de Corrélation")}
+                        {renderToggle('USE_NEWS_FILTER', "Utiliser le filtre de Nouvelles")}
                     </div>
                 </div>
             </div>
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-white">API Credentials</h3>
+                <h3 className="text-lg font-semibold text-white">Identifiants API</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                    {renderField('BINANCE_API_KEY', 'Binance API Key', 'text')}
-                    {renderField('BINANCE_SECRET_KEY', 'Binance Secret Key', 'password')}
+                    {renderField('BINANCE_API_KEY', "Clé API Binance", 'text')}
+                    {renderField('BINANCE_SECRET_KEY', "Clé Secrète Binance", 'password')}
                 </div>
                 <div className="flex justify-end">
                     <button onClick={handleTestBinanceConnection} disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY} className="inline-flex justify-center rounded-md border border-[#3e4451] bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isTestingBinance ? 'Testing...' : 'Test Connection'}
+                        {isTestingBinance ? "Test..." : "Tester la Connexion"}
                     </button>
                 </div>
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
-                 <h3 className="text-lg font-semibold text-white">Security & Data Management</h3>
+                 <h3 className="text-lg font-semibold text-white">Sécurité & Gestion des Données</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                    {renderField('newPassword', 'New Password', 'password')}
-                    {renderField('confirmPassword', 'Confirm New Password', 'password')}
+                    {renderField('newPassword', "Nouveau Mot de Passe", 'password')}
+                    {renderField('confirmPassword', "Confirmer le Nouveau Mot de Passe", 'password')}
                  </div>
                  <div className="flex justify-between items-center pt-4 border-t border-[#2b2f38] mt-6">
                      <button onClick={() => setIsClearModalOpen(true)} disabled={isSaving} className="inline-flex justify-center rounded-md border border-red-800 bg-transparent py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        Clear All Trade Data
+                        Effacer Toutes les Données
                     </button>
                     <button onClick={handleUpdatePassword} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isSaving ? 'Updating...' : 'Update Password'}
+                        {isSaving ? "Mise à jour..." : "Mettre à jour le Mot de Passe"}
                     </button>
                  </div>
             </div>
@@ -359,12 +359,12 @@ const SettingsPage: React.FC = () => {
             isOpen={isClearModalOpen}
             onClose={() => setIsClearModalOpen(false)}
             onConfirm={handleClearData}
-            title="Clear All Trade Data?"
-            confirmText="Yes, Clear Data"
+            title="Effacer toutes les données de trading ?"
+            confirmText="Oui, Effacer les Données"
             confirmVariant="danger"
         >
-            This action is irreversible. It will permanently delete all trade history 
-            and reset your virtual balance. Are you sure you want to proceed?
+            Cette action est irréversible. Elle supprimera définitivement tout l'historique des trades 
+            et réinitialisera votre solde virtuel. Êtes-vous sûr de vouloir continuer ?
       </Modal>
       </>
     );

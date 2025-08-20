@@ -155,3 +155,63 @@ Many of the initial "suggested improvements" have now been integrated as optiona
     *   **Short-Selling Strategy**: Develop a parallel strategy to take `SELL` positions when the Market Regime is `DOWNTREND`, allowing the bot to be profitable in both bull and bear markets.
     *   **Correlation Filter**: Implement logic to prevent opening simultaneous trades on highly correlated assets (e.g., BTC and ETH) to better diversify risk.
     *   **News Filter**: Integrate an economic calendar API to automatically pause trading around major news events.
+---
+# Version Française
+
+## ✨ Fonctionnalités Clés
+
+-   **Modes de Trading Multiples**: Approche sécurisée et progressive.
+    -   `Virtuel`: Simulation à 100%.
+    -   `Réel (Papier)`: Utilise les clés API réelles de Binance pour des données en direct mais **simule** les transactions.
+    -   `Réel (Live)`: Exécute des transactions avec des fonds réels.
+-   **Scanner de Marché en Temps Réel**: Identifie automatiquement les paires à fort potentiel.
+-   **Stratégie Avancée et Configurable**:
+    -   **Indicateurs Clés**: RSI, ADX, Volatilité, Volume.
+    -   **Filtres Avancés**: **Confirmation Multi-Timeframe**, un **Filtre de Régime de Marché**, et **Confirmation MACD**.
+    -   **Gestion des Risques Intelligente**: **Stop Loss basé sur l'ATR**, **Mise à Breakeven Automatique**, et **Prise de Profit Partielle**.
+    -   **Scoring Amélioré par ML**: Un modèle de machine learning intégré (optionnel) qui fournit un score de confiance (0-100), ajoutant une couche d'analyse prédictive.
+-   **Tableau de Bord en Direct**: Vue d'ensemble des indicateurs clés (solde, positions, P&L, etc.).
+-   **Historique des Transactions Détaillé**: Journal complet de tous les trades passés avec tri, filtre et exportation CSV.
+-   **Entièrement Configurable**: Chaque paramètre est ajustable via la page des paramètres avec des infobulles utiles.
+
+## 🧠 Stratégie de Trading Expliquée
+
+Le bot utilise une stratégie de suivi de tendance multi-filtres conçue pour identifier des points d'entrée à haute probabilité.
+
+### Étape 1 : Filtrage du Marché (L'Entonnoir)
+
+1.  **Récupération des Tickers**: Obtient toutes les paires basées sur l'USDT depuis l'API de Binance.
+2.  **Filtre de Volume**: Écarte les paires dont le volume est inférieur au seuil `Min Volume (USD)`.
+3.  **Filtre d'Exclusion**: Retire les paires listées dans le paramètre `Exclude Pairs`.
+4.  **Analyse Initiale**: Pour chaque paire restante, récupère les données historiques (4h) pour établir la tendance de fond et le régime de marché.
+
+### Étape 2 : Scoring en Temps Réel (Le Moteur de Décision)
+
+Pour chaque paire filtrée, le bot analyse en continu chaque bougie de 1 minute. Le `Score` final est déterminé par une série de vérifications strictes :
+
+| Score | Condition | Description |
+| :--- | :--- | :--- |
+| **HOLD** | **État par Défaut** ou Échec d'une Vérification | Si l'un des contrôles suivants échoue, le score reste `HOLD`. |
+| ... | 1. **Filtre de Régime de Marché** | *(Filtre Maître)* Si activé, le **Régime de Marché** à long terme est-il `UPTREND` (Tendance Haussière) ? Sinon, tous les signaux d'achat sont ignorés. |
+| ... | 2. **Confirmation Multi-Timeframe** | Si activé, la **Tendance 4h** est-elle `UP` (Haussière) ? Sinon, le signal est ignoré (`HOLD`). |
+| ... | 3. **Vérification de la Tendance à Court Terme** | La **Tendance 1m** est-elle `UP` ? Sinon, `HOLD`. |
+| ... | 4. **Vérification de la Volatilité** | La **Volatilité > `Min Volatility (%)`** ? Sinon, `HOLD`. |
+| ... | 5. **Confirmation par le Volume** | Si activé, le volume de la dernière bougie de 1 minute est-il **supérieur à sa moyenne récente** ? Sinon, `HOLD`. |
+| ... | 6. **Confirmation MACD** | Si activé, l'histogramme du **MACD 1m a-t-il une valeur positive** ? Sinon, `HOLD`. |
+| ... | 7. **Filtre de Surchat RSI** | Le **RSI est-il entre 50 et le seuil de surachat (ex: 70)** ? Si le RSI est trop élevé, le signal est ignoré (`HOLD`). |
+| ... | 8. **Filtre du Modèle ML (Optionnel)** | Si activé, le **Modèle ML prédit-il `UP` (HAUSSE) avec un score de confiance supérieur au seuil requis (ex: 65)** ? |
+| **BUY** | Toutes les vérifications applicables sont passées ET **RSI > 50** | Le signal est valide. |
+| **STRONG BUY** | Toutes les vérifications applicables sont passées ET **50 < RSI < 70** | Le "sweet spot". Le momentum est fort mais pas encore en "surchat". C'est le signal de la plus haute qualité. |
+
+### Étape 3 : Exécution et Gestion des Transactions
+
+1.  **Entrée**: Lorsqu'une paire atteint le score `BUY` ou `STRONG BUY`.
+2.  **Filtre Anti-Churn**: Le bot vérifie si la paire est en **cooldown** suite à une perte récente.
+3.  **Dimensionnement de la Position**:
+    *   **Standard**: Basé sur le `Position Size (%)`.
+    *   **Dynamique (Optionnel)**: Taille plus grande pour les signaux `STRONG BUY`.
+4.  **Gestion des Risques**:
+    *   **Stop Loss (SL) Initial**: Peut être un **pourcentage fixe** ou dynamique basé sur l'**ATR**.
+    *   **Take Profit (TP) & Ventes Partielles**: Un TP initial est fixé. Si la **Prise de Profit Partielle** est activée, le bot vend une fraction de la position à une cible préliminaire.
+    *   **Auto Break-even (Optionnel)**: Une fois en profit, le SL est déplacé au prix d'entrée, éliminant le risque.
+    *   **Trailing Stop Loss (Optionnel)**: Ajuste continuellement le SL à la hausse pour sécuriser les gains.

@@ -131,18 +131,18 @@ const ScannerPage: React.FC = () => {
   const getMlPredictionJsx = (prediction: ScannedPair['ml_prediction']) => {
       if (!prediction) return <span className="text-gray-500">-</span>;
       switch(prediction) {
-          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ UP</span>;
-          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ DOWN</span>;
-          default: return <span className="text-gray-400">- NEUTRAL</span>;
+          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ HAUSSE</span>;
+          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ BAISSE</span>;
+          default: return <span className="text-gray-400">- NEUTRE</span>;
       }
   }
 
   const getMarketRegimeJsx = (regime: ScannedPair['marketRegime']) => {
     if (!regime) return <span className="text-gray-500">-</span>;
     switch(regime) {
-        case 'UPTREND': return <span className="text-sky-400 font-bold">UPTREND</span>;
-        case 'DOWNTREND': return <span className="text-orange-400">DOWNTREND</span>;
-        default: return <span className="text-gray-500">NEUTRAL</span>;
+        case 'UPTREND': return <span className="text-sky-400 font-bold">HAUSSIER</span>;
+        case 'DOWNTREND': return <span className="text-orange-400">BAISSIER</span>;
+        default: return <span className="text-gray-500">NEUTRE</span>;
     }
   }
 
@@ -152,22 +152,22 @@ const ScannerPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white">Market Scanner</h2>
+      <h2 className="text-2xl font-bold text-white">Scanner de Marché</h2>
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
         <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbol</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Price</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">ML Prediction</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">ML Score</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">Prédiction ML</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">Score ML</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatility</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Trend 1m</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Trend 4h</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Market Regime</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
                     </tr>
@@ -205,12 +205,12 @@ const ScannerPage: React.FC = () => {
                             <td colSpan={12} className="px-6 py-16 text-center text-gray-500">
                                 <div className="flex flex-col items-center">
                                     <EmptyScannerIcon />
-                                    <h3 className="mt-4 text-sm font-semibold text-gray-300">No Pairs Found</h3>
+                                    <h3 className="mt-4 text-sm font-semibold text-gray-300">Aucune Paire Trouvée</h3>
                                     <p className="mt-1 text-sm text-gray-500">
-                                        No pairs currently meet the scanner's criteria.
+                                        Aucune paire ne correspond actuellement aux critères du scanner.
                                     </p>
                                     <p className="mt-1 text-sm text-gray-500">
-                                        Try adjusting your filters on the Settings page or wait for market conditions to change.
+                                        Essayez d'ajuster vos filtres sur la page Paramètres ou attendez que les conditions du marché changent.
                                     </p>
                                 </div>
                             </td>

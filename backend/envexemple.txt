@@ -64,6 +64,9 @@ USE_DYNAMIC_POSITION_SIZING=false
 # Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
 STRONG_BUY_POSITION_SIZE_PCT=3.0
 
+# Exiger une confirmation du modèle ML avant d'ouvrir un trade. (true/false)
+USE_ML_MODEL_FILTER=false
+
 # (Fonctionnalité future) Empêcher l'ouverture de trades sur des paires fortement corrélées. (true/false)
 USE_CORRELATION_FILTER=false
 # (Fonctionnalité future) Mettre en pause le bot lors d'événements économiques majeurs. (true/false)
