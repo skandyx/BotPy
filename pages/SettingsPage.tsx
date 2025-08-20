@@ -41,6 +41,7 @@ const tooltips: Record<string, string> = {
     PARTIAL_TP_SELL_QTY_PCT: "The percentage (%) of the initial position quantity to sell for the partial take profit.",
     USE_DYNAMIC_POSITION_SIZING: "Allocate a larger position size for the highest quality 'STRONG BUY' signals compared to regular 'BUY' signals.",
     STRONG_BUY_POSITION_SIZE_PCT: "The percentage of your balance to use for a 'STRONG BUY' signal if dynamic sizing is enabled.",
+    USE_ML_MODEL_FILTER: "If enabled, the bot will require a confirmation from the internal Machine Learning model (ML Prediction must be 'UP' with a high score) before opening a trade.",
     USE_CORRELATION_FILTER: "(Future Feature) Prevent opening trades on multiple, highly-correlated pairs at the same time to diversify risk.",
     USE_NEWS_FILTER: "(Future Feature) Automatically pause the bot during major economic news events to avoid extreme volatility."
 };
@@ -318,6 +319,7 @@ const SettingsPage: React.FC = () => {
                         {renderToggle('USE_DYNAMIC_POSITION_SIZING', 'Use Dynamic Position Sizing')}
                         {renderField('STRONG_BUY_POSITION_SIZE_PCT', 'Strong Buy Position Size (%)')}
                         <div></div>
+                        {renderToggle('USE_ML_MODEL_FILTER', 'Use ML Model Filter')}
                         {renderToggle('USE_CORRELATION_FILTER', 'Use Correlation Filter')}
                         {renderToggle('USE_NEWS_FILTER', 'Use News Filter')}
                     </div>

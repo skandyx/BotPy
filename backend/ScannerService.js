@@ -130,6 +130,8 @@ export class ScannerService {
             atr: 0, // Placeholder
             macd: null, // Placeholder
             macd_4h: lastMacd,
+            ml_score: 50, // Placeholder
+            ml_prediction: 'NEUTRAL', // Placeholder
         };
     }
 

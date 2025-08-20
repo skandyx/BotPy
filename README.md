@@ -13,6 +13,7 @@ BOTPY is a comprehensive web-based dashboard designed to monitor, control, and a
     -   **Core Indicators**: RSI, ADX, Volatility, Volume.
     -   **Advanced Filters**: **Multi-Timeframe Confirmation**, a master **Market Regime Filter**, and **MACD Confirmation**.
     -   **Intelligent Risk Management**: **ATR-based Stop Loss**, **Auto Break-even**, and **Partial Take Profit**.
+    -   **ML-Enhanced Scoring**: An optional, built-in machine learning model that provides a confidence score (0-100) for potential trades, adding a powerful layer of predictive analysis.
 -   **Live Dashboard**: Offers an at-a-glance overview of key performance indicators (KPIs) such as balance, open positions, total Profit & Loss (P&L), and win rate.
 -   **Detailed Trade History**: Provides a complete log of all past trades with powerful sorting, filtering, and data export (CSV) capabilities.
 -   **Fully Configurable**: Every parameter of the basic and advanced strategies is easily adjustable through a dedicated settings page with helpful tooltips.
@@ -45,11 +46,13 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 -   **Layout**: A full-width, data-dense table with sortable columns.
 -   **Columns & Color-Coding**:
     -   `Symbol`, `Price` (with live green/red flashes), `Volume`, `Volatility`.
+    -   `Score`: The final strategic score, displayed as a colored badge (`STRONG BUY`/`BUY` are **green**).
+    -   `ML Prediction` & `ML Score`: The output of the machine learning model, showing its predicted trend and confidence level.
     -   `Trend 1m` & `Trend 4h`: The short-term and long-term trends, visualized with icons and colors: `▲ UP` (**green**), `▼ DOWN` (**red**), `- NEUTRAL` (**gray**).
     -   `Market Regime`: The long-term market structure (`UPTREND`, `DOWNTREND`), providing critical context.
     -   `RSI`: Colored **yellow** if > 70 (overbought) or **purple** if < 30 (oversold).
     -   `ADX`: **Blue and bold** if > 25, indicating a strong trend.
-    -   `Score`: The final strategic score, displayed as a colored badge (`STRONG BUY`/`BUY` are **green**).
+
 
 ### 📜 History
 
@@ -66,7 +69,7 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 -   **Key Sections**:
     -   **Trading Parameters**: Core settings like `Position Size`, `Take Profit`, `Stop Loss`, and **Trailing Stop Loss**.
     -   **Market Scanner & Strategy Filters**: `Min Volume`, `Min Volatility`, and toggles for foundational filters.
-    -   **Advanced Strategy & Risk Management**: A dedicated section to configure expert-level tools like **ATR Stop Loss**, **Auto Break-even**, **MACD Confirmation**, and **Partial Take Profit**.
+    -   **Advanced Strategy & Risk Management**: A dedicated section to configure expert-level tools like **ATR Stop Loss**, **Auto Break-even**, **MACD Confirmation**, **Partial Take Profit**, and the **ML Model Filter**.
     -   **API Credentials & Data Management**: Securely manage API keys, test connections, and clear trade data.
 
 ### 🖥️ Console
@@ -103,8 +106,10 @@ For each filtered pair, the bot connects via WebSocket and performs a continuous
 | ... | 5. **Volume Confirmation** | If enabled, is the volume of the last 1-minute candle **greater than its recent average**? If not, `HOLD`. This confirms market interest is backing the move. |
 | ... | 6. **MACD Confirmation** | If enabled, does the **1m MACD histogram have a positive value**? This confirms bullish momentum is present. If not, `HOLD`. |
 | ... | 7. **RSI Overbought Filter** | Is the **RSI between 50 and the overbought threshold (e.g., 70)**? If RSI is too high, the market is considered overheated and the signal is discarded (`HOLD`). |
-| **BUY** | All above checks passed AND **RSI > 50** | The pair is in a confirmed, volatile uptrend with positive momentum, and aligned with the long-term market direction. This is a valid signal. |
-| **STRONG BUY** | All above checks passed AND **50 < RSI < 70** | This is the "sweet spot". The momentum is strong but not yet in the "overbought" territory, suggesting the trend has room to run. This is the highest quality signal. |
+| ... | 8. **ML Model Filter (Optional)** | If enabled, does the **ML Model predict `UP` with a confidence score above the required threshold (e.g., 65)**? This provides an advanced, final layer of confirmation. |
+| **BUY** | All applicable checks passed AND **RSI > 50** | The pair is in a confirmed, volatile uptrend with positive momentum, and aligned with the long-term market direction. This is a valid signal. |
+| **STRONG BUY** | All applicable checks passed AND **50 < RSI < 70** | This is the "sweet spot". The momentum is strong but not yet in the "overbought" territory, suggesting the trend has room to run. This is the highest quality signal. |
+
 
 ### Step 3: Trade Execution & Management
 
@@ -145,6 +150,7 @@ Many of the initial "suggested improvements" have now been integrated as optiona
 *   **✅ [Implemented] Dynamic Stop Loss based on Volatility (ATR)**
 *   **✅ [Implemented] Advanced Profit-Taking Strategy (Partial Take Profit)**
 *   **✅ [Implemented] Auto Break-even**
+*   **✅ [Implemented] ML Model Filter for enhanced signal confirmation**
 *   **Next Steps**:
     *   **Short-Selling Strategy**: Develop a parallel strategy to take `SELL` positions when the Market Regime is `DOWNTREND`, allowing the bot to be profitable in both bull and bear markets.
     *   **Correlation Filter**: Implement logic to prevent opening simultaneous trades on highly correlated assets (e.g., BTC and ETH) to better diversify risk.

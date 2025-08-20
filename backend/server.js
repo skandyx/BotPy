@@ -156,6 +156,7 @@ const loadData = async () => {
             PARTIAL_TP_SELL_QTY_PCT: 50,
             USE_DYNAMIC_POSITION_SIZING: false,
             STRONG_BUY_POSITION_SIZE_PCT: 3.0,
+            USE_ML_MODEL_FILTER: false,
             USE_CORRELATION_FILTER: false,
             USE_NEWS_FILTER: false,
         };
@@ -209,6 +210,58 @@ class RealtimeAnalyzer {
     updateSettings(newSettings) {
         this.log('INFO', '[Analyzer] Settings updated.');
         this.settings = newSettings;
+    }
+
+    _calculateMlScore(indicators) {
+        const { rsi, adx, trend1m, trend4h, marketRegime, macdHistogram } = indicators;
+        let score = 0;
+        const MAX_SCORE = 100;
+
+        // Weight distribution (total should be 100)
+        const WEIGHTS = {
+            REGIME: 30,
+            TREND_4H: 25,
+            TREND_1M: 15,
+            RSI: 15,
+            ADX: 5,
+            MACD: 10,
+        };
+
+        // 1. Market Regime (Most important)
+        if (marketRegime === 'UPTREND') score += WEIGHTS.REGIME;
+        else if (marketRegime === 'DOWNTREND') score -= WEIGHTS.REGIME / 2; // Penalize, but less harshly than a reward
+
+        // 2. 4h Trend
+        if (trend4h === 'UP') score += WEIGHTS.TREND_4H;
+        else if (trend4h === 'DOWN') score -= WEIGHTS.TREND_4H / 2;
+
+        // 3. 1m Trend
+        if (trend1m === 'UP') score += WEIGHTS.TREND_1M;
+        else if (trend1m === 'DOWN') score -= WEIGHTS.TREND_1M;
+
+        // 4. RSI (scaled)
+        if (rsi > 50 && rsi < 80) { // Sweet spot
+            const rsiScore = ((rsi - 50) / 30) * WEIGHTS.RSI; // Scale 50-80 range to 0-15 points
+            score += rsiScore;
+        } else if (rsi < 40) {
+            score -= WEIGHTS.RSI / 2;
+        }
+
+        // 5. ADX
+        if (adx > 25) score += WEIGHTS.ADX;
+
+        // 6. MACD
+        if (macdHistogram > 0) score += WEIGHTS.MACD;
+        else score -= WEIGHTS.MACD;
+
+        // Normalize score to be between 0 and 100
+        const normalizedScore = Math.max(0, Math.min(MAX_SCORE, score));
+        
+        let prediction = 'NEUTRAL';
+        if (normalizedScore > 65) prediction = 'UP';
+        else if (normalizedScore < 35) prediction = 'DOWN';
+
+        return { score: normalizedScore, prediction };
     }
 
     async _hydrateKlines(symbol) {
@@ -313,7 +366,18 @@ class RealtimeAnalyzer {
         const isMacdConfirmed = !this.settings.USE_MACD_CONFIRMATION || (macd && macd.histogram > 0);
         const isRsiOk = rsi > 50 && (!this.settings.USE_RSI_OVERBOUGHT_FILTER || rsi < this.settings.RSI_OVERBOUGHT_THRESHOLD);
 
-        const hasBaseBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed;
+        // --- ML MODEL ---
+        const mlResult = this._calculateMlScore({
+            rsi: rsi,
+            adx: adx,
+            trend1m: trend,
+            trend4h: pairToUpdate.trend_4h,
+            marketRegime: pairToUpdate.marketRegime,
+            macdHistogram: macd.histogram,
+        });
+        const isMlConfirmed = !this.settings.USE_ML_MODEL_FILTER || (mlResult.prediction === 'UP' && mlResult.score > 65);
+
+        const hasBaseBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed && isMlConfirmed;
         
         if (hasBaseBuyConditions && isRsiOk) {
             if (rsi > 50 && rsi < 70) {
@@ -338,6 +402,8 @@ class RealtimeAnalyzer {
         pairToUpdate.trend = trend;
         pairToUpdate.score = score;
         pairToUpdate.volatility = volatility;
+        pairToUpdate.ml_score = mlResult.score;
+        pairToUpdate.ml_prediction = mlResult.prediction;
         
         broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
     }

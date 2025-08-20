@@ -62,6 +62,8 @@ export interface ScannedPair {
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN';
     volatility: number; // Volatility as a percentage
     macd_4h?: { MACD: number; signal: number; histogram: number; };
+    ml_score?: number; // ML Model Confidence Score (0-100)
+    ml_prediction?: 'UP' | 'DOWN' | 'NEUTRAL'; // ML Model Prediction
 }
 
 
@@ -140,6 +142,9 @@ export interface BotSettings {
     // Dynamic Position Sizing
     USE_DYNAMIC_POSITION_SIZING: boolean;
     STRONG_BUY_POSITION_SIZE_PCT: number;
+
+    // Machine Learning
+    USE_ML_MODEL_FILTER: boolean;
 
     // Future-proofing (UI only for now)
     USE_CORRELATION_FILTER: boolean;

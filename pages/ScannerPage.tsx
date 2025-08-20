@@ -52,7 +52,7 @@ const EmptyScannerIcon = () => (
 
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
-  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'ml_score', direction: 'desc' });
   const [isInitialLoading, setIsInitialLoading] = useState(() => scannerStore.getScannedPairs().length === 0);
 
   useEffect(() => {
@@ -128,6 +128,15 @@ const ScannerPage: React.FC = () => {
       }
   }
 
+  const getMlPredictionJsx = (prediction: ScannedPair['ml_prediction']) => {
+      if (!prediction) return <span className="text-gray-500">-</span>;
+      switch(prediction) {
+          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ UP</span>;
+          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ DOWN</span>;
+          default: return <span className="text-gray-400">- NEUTRAL</span>;
+      }
+  }
+
   const getMarketRegimeJsx = (regime: ScannedPair['marketRegime']) => {
     if (!regime) return <span className="text-gray-500">-</span>;
     switch(regime) {
@@ -151,6 +160,9 @@ const ScannerPage: React.FC = () => {
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbol</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Price</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">ML Prediction</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">ML Score</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatility</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Trend 1m</SortableHeader>
@@ -158,7 +170,6 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Market Regime</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
@@ -172,6 +183,13 @@ const ScannerPage: React.FC = () => {
                                 <tr key={pair.symbol}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
+                                            {pair.score}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>
@@ -179,17 +197,12 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
-                                            {pair.score}
-                                        </span>
-                                    </td>
                                 </tr>
                             )
                         })
                     ) : (
                          <tr>
-                            <td colSpan={10} className="px-6 py-16 text-center text-gray-500">
+                            <td colSpan={12} className="px-6 py-16 text-center text-gray-500">
                                 <div className="flex flex-col items-center">
                                     <EmptyScannerIcon />
                                     <h3 className="mt-4 text-sm font-semibold text-gray-300">No Pairs Found</h3>
