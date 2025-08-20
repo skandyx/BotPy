@@ -80,6 +80,7 @@ function broadcast(message) {
     const data = JSON.stringify(message);
     // Log important broadcasts for debugging
     if (['SCANNER_UPDATE', 'POSITIONS_UPDATED'].includes(message.type)) {
+        // BUG FIX: Changed from recursive broadcast() to log()
         log('WEBSOCKET', `Broadcasting ${message.type} to ${clients.size} clients.`);
     }
     for (const client of clients) {
@@ -557,11 +558,14 @@ const tradingEngine = {
             if (botState.settings.USE_PARTIAL_TAKE_PROFIT && !position.partial_tp_hit) {
                 if (pnl_pct >= botState.settings.PARTIAL_TP_TRIGGER_PCT) {
                     const sellQty = position.initial_quantity * (botState.settings.PARTIAL_TP_SELL_QTY_PCT / 100);
+                    const partialPnl = (currentPrice - position.entry_price) * sellQty;
+                    
+                    position.realized_pnl = (position.realized_pnl || 0) + partialPnl;
                     position.quantity -= sellQty;
                     botState.balance += sellQty * currentPrice;
                     position.partial_tp_hit = true;
                     positionsWereUpdated = true;
-                    log('TRADE', `PARTIAL TP: Sold ${sellQty.toFixed(4)} ${position.symbol} at ${currentPrice.toFixed(4)}`);
+                    log('TRADE', `PARTIAL TP: Sold ${sellQty.toFixed(4)} ${position.symbol} at ${currentPrice.toFixed(4)} for a profit of $${partialPnl.toFixed(2)}`);
                 }
             }
 
@@ -662,6 +666,7 @@ const tradingEngine = {
             initial_risk_usd: initialRiskUSD,
             is_at_breakeven: false,
             partial_tp_hit: false,
+            realized_pnl: 0,
         };
         botState.activePositions.push(newTrade);
         this.tradedSymbolsThisCandle.add(newTrade.symbol); // Register trade for this candle
@@ -678,11 +683,13 @@ const tradingEngine = {
 
         const trade = botState.activePositions[tradeIndex];
         const exitValue = exitPrice * trade.quantity;
-        // PnL calculation should be based on initial cost, even after partial sells
-        const entryValue = trade.entry_price * trade.initial_quantity;
-        const costOfSoldPortion = trade.entry_price * (trade.initial_quantity - trade.quantity);
-        const pnl = (exitValue + costOfSoldPortion) - entryValue;
 
+        // --- REFACTORED PNL LOGIC ---
+        const pnlFromRemaining = (exitPrice - trade.entry_price) * trade.quantity;
+        const realizedPnl = trade.realized_pnl || 0;
+        const pnl = realizedPnl + pnlFromRemaining;
+        const entryValue = trade.entry_price * trade.initial_quantity;
+        // --- END REFACTOR ---
 
         botState.balance += exitValue;
 
@@ -690,7 +697,7 @@ const tradingEngine = {
         trade.exit_time = new Date().toISOString();
         trade.status = 'CLOSED';
         trade.pnl = pnl;
-        trade.pnl_pct = (pnl / entryValue) * 100;
+        trade.pnl_pct = entryValue > 0 ? (pnl / entryValue) * 100 : 0;
         
         botState.tradeHistory.push(trade);
         botState.activePositions.splice(tradeIndex, 1);
