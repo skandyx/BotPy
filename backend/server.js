@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import http from 'http';
 import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
-import { RSI, ADX } from 'technicalindicators';
+import { RSI, ADX, ATR, MACD } from 'technicalindicators';
 
 
 // --- Basic Setup ---
@@ -142,6 +142,21 @@ const loadData = async () => {
             LOSS_COOLDOWN_HOURS: parseInt(process.env.LOSS_COOLDOWN_HOURS, 10) || 4,
             BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
             BINANCE_SECRET_KEY: process.env.BINANCE_SECRET_KEY || '',
+            // Advanced Defaults
+            USE_ATR_STOP_LOSS: false,
+            ATR_MULTIPLIER: 1.5,
+            USE_AUTO_BREAKEVEN: true,
+            BREAKEVEN_TRIGGER_R: 1.0,
+            USE_RSI_OVERBOUGHT_FILTER: true,
+            RSI_OVERBOUGHT_THRESHOLD: 70,
+            USE_MACD_CONFIRMATION: true,
+            USE_PARTIAL_TAKE_PROFIT: false,
+            PARTIAL_TP_TRIGGER_PCT: 1.5,
+            PARTIAL_TP_SELL_QTY_PCT: 50,
+            USE_DYNAMIC_POSITION_SIZING: false,
+            STRONG_BUY_POSITION_SIZE_PCT: 3.0,
+            USE_CORRELATION_FILTER: false,
+            USE_NEWS_FILTER: false,
         };
         await saveData('settings');
     }
@@ -250,7 +265,7 @@ class RealtimeAnalyzer {
         if (existingKlines.length > 100) existingKlines.shift();
         this.klineData.set(symbol, existingKlines);
         
-        if (existingKlines.length < 20) return; // Not enough data yet
+        if (existingKlines.length < 26) return; // Not enough data for MACD yet
 
         const closes = existingKlines.map(d => d.close);
         const highs = existingKlines.map(d => d.high);
@@ -273,9 +288,14 @@ class RealtimeAnalyzer {
 
         const rsiResult = RSI.calculate({ values: closes, period: 14 });
         const adxResult = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
-
+        const atrResult = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
+        const macdResult = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false });
+        
         const rsi = rsiResult.length > 0 ? rsiResult[rsiResult.length - 1] : 50;
         const adx = adxResult.length > 0 ? adxResult[adxResult.length - 1].adx : 20;
+        const atr = atrResult.length > 0 ? atrResult[atrResult.length - 1] : 0;
+        const macd = macdResult.length > 0 ? macdResult[macdResult.length - 1] : { histogram: 0 };
+
 
         const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
         
@@ -284,25 +304,20 @@ class RealtimeAnalyzer {
             trend = newKline.close > sma20 ? 'UP' : 'DOWN';
         }
 
-        // --- SCORING LOGIC WITH MASTER FILTERS ---
+        // --- SCORING LOGIC WITH ADVANCED FILTERS ---
         let score = 'HOLD';
         
         const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
         const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
+        const isMacdConfirmed = !this.settings.USE_MACD_CONFIRMATION || (macd && macd.histogram > 0);
+        const isRsiOk = rsi > 50 && (!this.settings.USE_RSI_OVERBOUGHT_FILTER || rsi < this.settings.RSI_OVERBOUGHT_THRESHOLD);
 
-        const hasStrongBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed;
+        const hasBaseBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed;
         
-        // The 'STRONG BUY' score is now much stricter and does not depend on user settings for MTF/Regime.
-        const isTrueStrongBuy = pairToUpdate.marketRegime === 'UPTREND' && pairToUpdate.trend_4h === 'UP' && hasStrongBuyConditions;
-
-        if (isTrueStrongBuy) {
+        if (hasBaseBuyConditions && isRsiOk) {
             if (rsi > 50 && rsi < 70) {
                 score = 'STRONG BUY';
-            } else if (rsi > 50) {
-                score = 'BUY'; // It's still a very strong setup, just less "perfect" on RSI.
-            }
-        } else if (hasStrongBuyConditions) { // Check for a normal 'BUY' based on user settings
-            if (rsi > 50) {
+            } else {
                 score = 'BUY';
             }
         }
@@ -317,6 +332,8 @@ class RealtimeAnalyzer {
 
         pairToUpdate.rsi = rsi;
         pairToUpdate.adx = adx;
+        pairToUpdate.atr = atr;
+        pairToUpdate.macd = macd;
         pairToUpdate.trend = trend;
         pairToUpdate.score = score;
         pairToUpdate.volatility = volatility;
@@ -442,6 +459,7 @@ const runScannerLoop = async () => {
                 existingPair.trend_4h = newPair.trend_4h;
                 existingPair.marketRegime = newPair.marketRegime;
                 existingPair.volume = newPair.volume; // Volume also updates periodically
+                existingPair.macd_4h = newPair.macd_4h;
                 mergedCache.push(existingPair);
             } else {
                 // This is a brand new pair that wasn't in the cache before.
@@ -503,7 +521,7 @@ const tradingEngine = {
             if (!currentPrice) continue;
 
             const pnl = (currentPrice - position.entry_price) * position.quantity;
-            const entryValue = position.entry_price * position.quantity;
+            const entryValue = position.entry_price * (position.initial_quantity || position.quantity);
             const pnl_pct = entryValue !== 0 ? (pnl / entryValue) * 100 : 0;
             
             position.current_price = currentPrice;
@@ -522,21 +540,40 @@ const tradingEngine = {
                 }
             }
 
+            // --- ADVANCED MANAGEMENT LOGIC ---
+
+            // Auto Break-even
+            if (botState.settings.USE_AUTO_BREAKEVEN && !position.is_at_breakeven) {
+                const requiredPnl = position.initial_risk_usd * botState.settings.BREAKEVEN_TRIGGER_R;
+                if (pnl >= requiredPnl) {
+                    position.stop_loss = position.entry_price;
+                    position.is_at_breakeven = true;
+                    positionsWereUpdated = true;
+                    log('TRADE', `AUTO-BREAKEVEN: Moved SL to entry for ${position.symbol}`);
+                }
+            }
+            
+            // Partial Take Profit
+            if (botState.settings.USE_PARTIAL_TAKE_PROFIT && !position.partial_tp_hit) {
+                if (pnl_pct >= botState.settings.PARTIAL_TP_TRIGGER_PCT) {
+                    const sellQty = position.initial_quantity * (botState.settings.PARTIAL_TP_SELL_QTY_PCT / 100);
+                    position.quantity -= sellQty;
+                    botState.balance += sellQty * currentPrice;
+                    position.partial_tp_hit = true;
+                    positionsWereUpdated = true;
+                    log('TRADE', `PARTIAL TP: Sold ${sellQty.toFixed(4)} ${position.symbol} at ${currentPrice.toFixed(4)}`);
+                }
+            }
+
             // --- EXIT LOGIC ---
-            if (botState.settings.USE_TRAILING_STOP_LOSS) {
-                if (currentPrice <= position.stop_loss) {
-                    this.closeTrade(position.id, currentPrice, 'Trailing Stop Loss hit');
-                    continue;
-                }
-            } else {
-                if (currentPrice >= position.take_profit) {
-                    this.closeTrade(position.id, currentPrice, 'Take Profit hit');
-                    continue;
-                }
-                if (currentPrice <= position.stop_loss) {
-                    this.closeTrade(position.id, currentPrice, 'Stop Loss hit');
-                    continue;
-                }
+            if (currentPrice <= position.stop_loss) {
+                const reason = position.is_at_breakeven ? 'Break-even Stop hit' : (botState.settings.USE_TRAILING_STOP_LOSS ? 'Trailing Stop Loss hit' : 'Stop Loss hit');
+                this.closeTrade(position.id, currentPrice, reason);
+                continue;
+            }
+            if (!botState.settings.USE_TRAILING_STOP_LOSS && currentPrice >= position.take_profit) {
+                this.closeTrade(position.id, currentPrice, 'Take Profit hit');
+                continue;
             }
         }
 
@@ -578,12 +615,17 @@ const tradingEngine = {
     openTrade: function(pair) {
         const { settings, balance, tradingMode } = botState;
         const currentPrice = priceFeeder.latestPrices.get(pair.symbol);
-        if (!currentPrice) {
-            log('WARN', `Cannot open trade for ${pair.symbol}, latest price not available.`);
+        if (!currentPrice || !pair.atr) {
+            log('WARN', `Cannot open trade for ${pair.symbol}, latest price or ATR not available.`);
             return;
         }
 
-        const positionSizeUSD = balance * (settings.POSITION_SIZE_PCT / 100);
+        let positionSizePct = settings.POSITION_SIZE_PCT;
+        if (settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
+            positionSizePct = settings.STRONG_BUY_POSITION_SIZE_PCT;
+        }
+
+        const positionSizeUSD = balance * (positionSizePct / 100);
         const quantity = positionSizeUSD / currentPrice;
         
         const entryPrice = currentPrice * (1 + settings.SLIPPAGE_PCT / 100);
@@ -594,6 +636,15 @@ const tradingEngine = {
             return;
         }
 
+        let stopLossPrice;
+        if (settings.USE_ATR_STOP_LOSS) {
+            stopLossPrice = entryPrice - (pair.atr * settings.ATR_MULTIPLIER);
+        } else {
+            stopLossPrice = entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
+        }
+        
+        const initialRiskUSD = (entryPrice - stopLossPrice) * quantity;
+
         botState.balance -= cost;
         const newTrade = {
             id: botState.tradeIdCounter++,
@@ -602,18 +653,22 @@ const tradingEngine = {
             side: 'BUY',
             entry_price: entryPrice,
             quantity: quantity,
-            stop_loss: entryPrice * (1 - settings.STOP_LOSS_PCT / 100),
+            initial_quantity: quantity,
+            stop_loss: stopLossPrice,
             take_profit: entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100),
             highest_price_since_entry: entryPrice,
             entry_time: new Date().toISOString(),
             status: 'FILLED',
+            initial_risk_usd: initialRiskUSD,
+            is_at_breakeven: false,
+            partial_tp_hit: false,
         };
         botState.activePositions.push(newTrade);
         this.tradedSymbolsThisCandle.add(newTrade.symbol); // Register trade for this candle
 
         priceFeeder.updateSubscriptions([...priceFeeder.subscribedSymbols, newTrade.symbol]);
         
-        log('TRADE', `OPENED LONG: ${pair.symbol} | Qty: ${quantity.toFixed(4)} @ ${entryPrice.toFixed(4)} | Value: $${cost.toFixed(2)}`);
+        log('TRADE', `OPENED LONG: ${pair.symbol} | Qty: ${quantity.toFixed(4)} @ ${entryPrice.toFixed(4)} | Value: $${cost.toFixed(2)} | Risk: $${initialRiskUSD.toFixed(2)}`);
         saveData('state');
         broadcast({ type: 'POSITIONS_UPDATED' });
     },
@@ -623,8 +678,11 @@ const tradingEngine = {
 
         const trade = botState.activePositions[tradeIndex];
         const exitValue = exitPrice * trade.quantity;
-        const entryValue = trade.entry_price * trade.quantity;
-        const pnl = exitValue - entryValue;
+        // PnL calculation should be based on initial cost, even after partial sells
+        const entryValue = trade.entry_price * trade.initial_quantity;
+        const costOfSoldPortion = trade.entry_price * (trade.initial_quantity - trade.quantity);
+        const pnl = (exitValue + costOfSoldPortion) - entryValue;
+
 
         botState.balance += exitValue;
 

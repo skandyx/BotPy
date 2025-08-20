@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import fetch from 'node-fetch';
-import { SMA, ADX } from 'technicalindicators';
+import { SMA, ADX, MACD } from 'technicalindicators';
 
 export class ScannerService {
     constructor(log, klineDataDir) {
@@ -97,11 +97,13 @@ export class ScannerService {
         const sma50 = SMA.calculate({ period: 50, values: closes });
         const sma200 = SMA.calculate({ period: 200, values: closes });
         const adxResult = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+        const macdResult = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false });
 
         const lastSma50 = sma50[sma50.length - 1];
         const lastSma200 = sma200[sma200.length - 1];
         const lastAdx = adxResult[adxResult.length - 1]?.adx || 0;
-        
+        const lastMacd = macdResult[macdResult.length - 1];
+
         let marketRegime = 'NEUTRAL';
         if (lastSma50 > lastSma200) marketRegime = 'UPTREND';
         else if (lastSma50 < lastSma200) marketRegime = 'DOWNTREND';
@@ -125,6 +127,9 @@ export class ScannerService {
             adx: 0, // Placeholder
             score: 'HOLD', // Default to HOLD, will be updated by 1m klines
             volatility: 0, // Placeholder
+            atr: 0, // Placeholder
+            macd: null, // Placeholder
+            macd_4h: lastMacd,
         };
     }
 

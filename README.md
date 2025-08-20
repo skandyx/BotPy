@@ -8,11 +8,14 @@ BOTPY is a comprehensive web-based dashboard designed to monitor, control, and a
     -   `Virtual`: 100% simulation. Safe for testing and strategy optimization.
     -   `Real (Paper)`: Uses real Binance API keys for a live data feed but **simulates** trades without risking capital. The perfect final test.
     -   `Real (Live)`: Executes trades with real funds on your Binance account.
--   **Real-time Market Scanner**: Automatically identifies high-potential trading pairs based on user-defined criteria like volume, volatility, and exclusion lists.
--   **Advanced Trading Strategy**: Implements a multi-filter, trend-following strategy using indicators like RSI, ADX, Volatility, Volume Confirmation, **Multi-Timeframe Confirmation**, and an intelligent **Market Regime Filter**.
+-   **Real-time Market Scanner**: Automatically identifies high-potential trading pairs based on user-defined criteria like volume and volatility.
+-   **Advanced & Configurable Strategy**: Implements a multi-filter, trend-following strategy with a suite of professional-grade tools:
+    -   **Core Indicators**: RSI, ADX, Volatility, Volume.
+    -   **Advanced Filters**: **Multi-Timeframe Confirmation**, a master **Market Regime Filter**, and **MACD Confirmation**.
+    -   **Intelligent Risk Management**: **ATR-based Stop Loss**, **Auto Break-even**, and **Partial Take Profit**.
 -   **Live Dashboard**: Offers an at-a-glance overview of key performance indicators (KPIs) such as balance, open positions, total Profit & Loss (P&L), and win rate.
 -   **Detailed Trade History**: Provides a complete log of all past trades with powerful sorting, filtering, and data export (CSV) capabilities.
--   **Fully Configurable**: Every parameter of the trading strategy is easily adjustable through a dedicated settings page with helpful tooltips.
+-   **Fully Configurable**: Every parameter of the basic and advanced strategies is easily adjustable through a dedicated settings page with helpful tooltips.
 -   **Binance API Integration**: Securely test your Binance API key connectivity directly from the settings page.
 
 ---
@@ -61,10 +64,10 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 -   **Layout**: A clean, well-organized form divided into logical sections.
 -   **User-Friendly**: Every single setting has a **tooltip icon** (❓) next to it, providing a clear explanation of its purpose on mouse hover.
 -   **Key Sections**:
-    -   **Trading Parameters**: `Initial Virtual Balance`, `Max Open Positions`, `Position Size (%)`, `Take Profit (%)`, `Stop Loss (%)`, and the advanced **Trailing Stop Loss** settings.
-    -   **Market Scanner & Strategy Filters**: `Min Volume (USD)`, `Min Volatility (%)`, toggles for advanced filters like **`Market Regime Filter`**, and the **`Loss Cooldown`** period.
-    -   **API Credentials**: Securely input your Binance API Key and Secret Key, with a button to **Test Connection**.
-    -   **Data Management**: A `Clear All Trade Data` button to reset the bot's history and balance to the configured initial value.
+    -   **Trading Parameters**: Core settings like `Position Size`, `Take Profit`, `Stop Loss`, and **Trailing Stop Loss**.
+    -   **Market Scanner & Strategy Filters**: `Min Volume`, `Min Volatility`, and toggles for foundational filters.
+    -   **Advanced Strategy & Risk Management**: A dedicated section to configure expert-level tools like **ATR Stop Loss**, **Auto Break-even**, **MACD Confirmation**, and **Partial Take Profit**.
+    -   **API Credentials & Data Management**: Securely manage API keys, test connections, and clear trade data.
 
 ### 🖥️ Console
 
@@ -98,17 +101,25 @@ For each filtered pair, the bot connects via WebSocket and performs a continuous
 | ... | 3. **Short-Term Trend Check** | Is the **Trend 1m `UP`** (ADX > 25 and price > SMA20)? If not, `HOLD`. |
 | ... | 4. **Volatility Check** | Is the calculated **Volatility > `Min Volatility (%)`**? If not, `HOLD`. This avoids entering flat, directionless markets. |
 | ... | 5. **Volume Confirmation** | If enabled, is the volume of the last 1-minute candle **greater than its recent average**? If not, `HOLD`. This confirms market interest is backing the move. |
+| ... | 6. **MACD Confirmation** | If enabled, does the **1m MACD histogram have a positive value**? This confirms bullish momentum is present. If not, `HOLD`. |
+| ... | 7. **RSI Overbought Filter** | Is the **RSI between 50 and the overbought threshold (e.g., 70)**? If RSI is too high, the market is considered overheated and the signal is discarded (`HOLD`). |
 | **BUY** | All above checks passed AND **RSI > 50** | The pair is in a confirmed, volatile uptrend with positive momentum, and aligned with the long-term market direction. This is a valid signal. |
-| **STRONG BUY** | All above checks passed AND **50 < RSI < 70** | This is the "sweet spot". The momentum is strong but not yet in the "overbought" territory (>70), suggesting the trend has room to run. This is the highest quality signal. |
+| **STRONG BUY** | All above checks passed AND **50 < RSI < 70** | This is the "sweet spot". The momentum is strong but not yet in the "overbought" territory, suggesting the trend has room to run. This is the highest quality signal. |
 
 ### Step 3: Trade Execution & Management
 
 1.  **Entry**: When a pair's score becomes `BUY` or `STRONG BUY`, the engine initiates a trade.
 2.  **Anti-Churn Filter**: Before entry, the bot checks if the pair is on a **cooldown** from a recent loss. If so, it skips the trade to avoid re-entering unfavorable conditions.
-3.  **Position Sizing**: The trade size is calculated based on the `Position Size (%)` of the total account balance.
+3.  **Position Sizing**:
+    *   **Standard**: The trade size is calculated based on the `Position Size (%)` of the total account balance.
+    *   **Dynamic (Optional)**: If enabled, the bot can use a larger size (`Strong Buy Position Size %`) for `STRONG BUY` signals.
 4.  **Risk Management & Exit Strategy**:
-    *   **Initial Stop Loss (SL) & Take Profit (TP)**: A static TP and SL level are calculated upon entry.
-    *   **Trailing Stop Loss (Optional)**: If enabled, the bot uses a dynamic exit strategy to maximize gains. It continuously adjusts the Stop Loss upwards as the price rises, locking in profits while letting winners run.
+    *   **Initial Stop Loss (SL)**: Calculated upon entry. Can be a **fixed percentage** or a dynamic value based on market volatility using the **Average True Range (ATR)**.
+    *   **Take Profit (TP) & Partial Sells**:
+        *   An initial TP level is set.
+        *   If **Partial Take Profit** is enabled, the bot will sell a fraction of the position at a preliminary target to secure gains, letting the rest run.
+    *   **Auto Break-even (Optional)**: Once a trade is sufficiently in profit (e.g., profit equals initial risk), the bot can automatically move the Stop Loss to the entry price, eliminating the risk of loss.
+    *   **Trailing Stop Loss (Optional)**: If enabled, the bot uses a dynamic exit strategy. It continuously adjusts the Stop Loss upwards as the price rises, locking in profits while letting winners run.
 
 ---
 
@@ -117,9 +128,9 @@ For each filtered pair, the bot connects via WebSocket and performs a continuous
 ### ✅ Strengths
 
 1.  **Rigorous Filtering**: The multi-stage filtering (Volume, Exclusion List, Volatility) effectively removes illiquid or undesirable pairs.
-2.  **Solid Technical Foundation**: The use of standard, proven indicators like RSI, ADX, and long-term Moving Averages provides a solid base for analysis.
+2.  **Confluence of Indicators**: By requiring confirmation from multiple indicators across different timeframes (RSI, ADX, MACD, MAs), the strategy significantly reduces the probability of acting on false signals.
 3.  **Patience & Context-Awareness**: With the **Market Regime Filter**, the bot knows when to stay out of the market entirely, avoiding many losing trades in unfavorable conditions.
-4.  **Systematic Risk Management**: The use of predefined Stop Loss, Take Profit, an advanced Trailing Stop Loss, and an **Anti-Churn Cooldown** enforces disciplined trading.
+4.  **Adaptive Risk Management**: The ability to use **ATR-based stops**, **auto break-even**, and **partial take profits** allows for sophisticated, professional-grade risk management that adapts to market conditions.
 
 ### ⚠️ Weaknesses & Risks
 
@@ -127,8 +138,14 @@ For each filtered pair, the bot connects via WebSocket and performs a continuous
 2.  **Sudden Market Events ("Black Swans")**: The strategy is technical and cannot account for sudden news events (e.g., regulatory changes, hacks) that can cause extreme market volatility and invalidate technical signals.
 3.  **Absence of Micro-Structure Analysis**: The bot does not analyze the order book or liquidity depth, making it blind to certain forms of market manipulation like spoofing.
 
-### 🔧 Suggested Improvements (For Future Versions)
+### 🔧 Implemented & Future Improvements
 
-*   **Dynamic Stop Loss based on Volatility (ATR)**: Use the Average True Range (ATR) to set the initial Stop Loss. This would place stops wider in volatile markets and tighter in calm markets, adapting the risk to the asset's current behavior.
-*   **Profit-Taking Strategy**: Implement a more dynamic profit-taking strategy, such as selling a partial position at a first target (e.g., 1.5R) and letting the rest run with the trailing stop.
-*   **Short-Selling Strategy**: Develop a parallel strategy to take `SELL` positions when the Market Regime is `DOWNTREND`, allowing the bot to be profitable in both bull and bear markets.
+Many of the initial "suggested improvements" have now been integrated as optional features!
+
+*   **✅ [Implemented] Dynamic Stop Loss based on Volatility (ATR)**
+*   **✅ [Implemented] Advanced Profit-Taking Strategy (Partial Take Profit)**
+*   **✅ [Implemented] Auto Break-even**
+*   **Next Steps**:
+    *   **Short-Selling Strategy**: Develop a parallel strategy to take `SELL` positions when the Market Regime is `DOWNTREND`, allowing the bot to be profitable in both bull and bear markets.
+    *   **Correlation Filter**: Implement logic to prevent opening simultaneous trades on highly correlated assets (e.g., BTC and ETH) to better diversify risk.
+    *   **News Filter**: Integrate an economic calendar API to automatically pause trading around major news events.

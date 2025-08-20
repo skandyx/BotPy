@@ -8,72 +8,69 @@
 # -----------------------------------------------------------------------------
 
 # --- CORE SETTINGS ---
-# Mode de l'environnement ('development' ou 'production').
-# Pour un VPS, mettez TOUJOURS 'production' pour la sécurité et la performance.
 NODE_ENV=production
-
-# Le port sur lequel le serveur backend écoutera.
 PORT=8080
-
-# Le mot de passe que vous utiliserez pour vous connecter au tableau de bord.
-# Choisissez un mot de passe fort et unique !
 APP_PASSWORD=votre_mot_de_passe_secret
 
 # --- TRADING PARAMETERS ---
-# Le solde de départ pour le mode de trading Virtuel.
 INITIAL_VIRTUAL_BALANCE=10000
-
-# Le nombre maximum de positions que le bot peut ouvrir simultanément.
 MAX_OPEN_POSITIONS=5
-
-# Le pourcentage du solde total à utiliser pour chaque nouvelle position (ex: 2.0 pour 2%).
 POSITION_SIZE_PCT=2.0
-
-# Le pourcentage de profit auquel une position est automatiquement fermée.
 TAKE_PROFIT_PCT=4.0
-
-# Le pourcentage de perte auquel une position est automatiquement fermée.
 STOP_LOSS_PCT=2.0
-
-# Activer/désactiver le Trailing Stop Loss (true/false).
 USE_TRAILING_STOP_LOSS=true
-
-# Le pourcentage sous le prix le plus élevé pour le Trailing Stop Loss (ex: 1.5 pour 1.5%).
 TRAILING_STOP_LOSS_PCT=1.5
-
-# Pourcentage de slippage pour simuler les conditions de marché réelles.
 SLIPPAGE_PCT=0.05
 
 # --- STRATEGY & SCANNER FILTERS ---
-# Le volume de trading minimum sur 24h (en USD) qu'une paire doit avoir pour être scannée.
 MIN_VOLUME_USD=400000000
-
-# La volatilité de prix minimum qu'une paire doit avoir pour être considérée.
 MIN_VOLATILITY_PCT=0.5
-
-# À quelle fréquence (en secondes) le bot doit-il exécuter un scan complet du marché.
 COINGECKO_SYNC_SECONDS=60
-
-# Une liste de paires à ignorer, séparées par des virgules (ex: USDCUSDT,FDUSDUSDT).
 EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"
-
-# Filtres de stratégie avancés (true/false).
 USE_VOLUME_CONFIRMATION=true
 USE_MULTI_TIMEFRAME_CONFIRMATION=true
 USE_MARKET_REGIME_FILTER=true
-
-# Si activé, le bot n'ouvrira des positions que pour les signaux 'STRONG BUY', ignorant les signaux 'BUY' classiques.
 REQUIRE_STRONG_BUY=false
-
-# Après une transaction perdante sur un symbole, combien d'heures le bot doit-il attendre avant de pouvoir trader à nouveau ce symbole.
 LOSS_COOLDOWN_HOURS=4
 
+# --- ADVANCED STRATEGY & RISK MANAGEMENT ---
+# Utiliser un Stop Loss dynamique basé sur l'ATR (Average True Range). (true/false)
+USE_ATR_STOP_LOSS=false
+# Le multiplicateur à appliquer à l'ATR pour définir la distance du Stop Loss (ex: 1.5).
+ATR_MULTIPLIER=1.5
+
+# Déplacer automatiquement le Stop Loss au point d'entrée une fois qu'un trade est profitable. (true/false)
+USE_AUTO_BREAKEVEN=true
+# Le niveau de profit (en multiple du risque initial 'R') pour déclencher le break-even (ex: 1.0).
+BREAKEVEN_TRIGGER_R=1.0
+
+# Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
+USE_RSI_OVERBOUGHT_FILTER=true
+# Le seuil RSI au-dessus duquel un signal d'achat sera ignoré (ex: 70).
+RSI_OVERBOUGHT_THRESHOLD=70
+
+# Exiger une confirmation de l'indicateur MACD avant d'ouvrir un trade. (true/false)
+USE_MACD_CONFIRMATION=true
+
+# Vendre une partie de la position à un objectif de profit préliminaire. (true/false)
+USE_PARTIAL_TAKE_PROFIT=false
+# Le pourcentage de profit (%) pour déclencher la vente partielle.
+PARTIAL_TP_TRIGGER_PCT=1.5
+# Le pourcentage (%) de la quantité initiale à vendre pour la prise de profit partielle.
+PARTIAL_TP_SELL_QTY_PCT=50
+
+# Allouer une plus grande taille de position pour les signaux de haute qualité 'STRONG BUY'. (true/false)
+USE_DYNAMIC_POSITION_SIZING=false
+# Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
+STRONG_BUY_POSITION_SIZE_PCT=3.0
+
+# (Fonctionnalité future) Empêcher l'ouverture de trades sur des paires fortement corrélées. (true/false)
+USE_CORRELATION_FILTER=false
+# (Fonctionnalité future) Mettre en pause le bot lors d'événements économiques majeurs. (true/false)
+USE_NEWS_FILTER=false
+
+
 # --- API CREDENTIALS ---
-# Votre clé API publique de Binance.
 BINANCE_API_KEY=votre_cle_api_binance
-
-# Votre clé API secrète de Binance.
 BINANCE_SECRET_KEY=votre_cle_secrete_binance
-
-# (Optionnel mais recommandé) Votre clé API de CoinGecko pour des appels plus fiables.
 COINGECKO_API_KEY=

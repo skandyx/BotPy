@@ -105,7 +105,7 @@ The backend is configured using an environment file.
 cd backend
 
 # Create a .env file from the example template
-cp ../.env.example .env
+cp envexemple.txt .env
 ```
 
 Now, edit the `.env` file with your specific configuration using a text editor like `nano`:

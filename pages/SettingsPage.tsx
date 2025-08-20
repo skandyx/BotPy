@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
@@ -21,7 +20,7 @@ const tooltips: Record<string, string> = {
     MIN_VOLUME_USD: "The minimum 24-hour trading volume a pair must have to be considered by the scanner. Filters out illiquid markets.",
     MIN_VOLATILITY_PCT: "The minimum price volatility a pair must have to be considered for a trade. Avoids entering trades in flat, sideways markets.",
     COINGECKO_API_KEY: "Your CoinGecko API key (e.g., from the free 'Demo' plan). Using a key provides more reliable and faster API responses for market scanning.",
-    COINGECKO_SYNC_SECONDS: "How often (in seconds) the bot should fetch new market-wide data from CoinGecko to update the list of scannable pairs.",
+    COINGECKO_SYNC_SECONDS: "How often (in seconds) the bot should perform a full market scan to discover and analyze pairs based on their 4h chart data.",
     USE_VOLUME_CONFIRMATION: "If enabled, a trade signal is only valid if the current trading volume is above its recent average, confirming market interest.",
     USE_MULTI_TIMEFRAME_CONFIRMATION: "A powerful filter. If enabled, a short-term buy signal (1-minute) is only valid if the long-term trend (4-hour) is also UP.",
     USE_MARKET_REGIME_FILTER: "A master filter. If enabled, the bot will only trade if the long-term market structure (based on 50/200 MAs on the 4h chart) is in a confirmed UPTREND.",
@@ -30,6 +29,20 @@ const tooltips: Record<string, string> = {
     EXCLUDED_PAIRS: "A comma-separated list of pairs to ignore completely, regardless of their volume (e.g., USDCUSDT,FDUSDUSDT).",
     BINANCE_API_KEY: "Your public Binance API key. Required for live and paper trading modes.",
     BINANCE_SECRET_KEY: "Your secret Binance API key. This is stored securely on the server and is never exposed to the frontend.",
+    USE_ATR_STOP_LOSS: "Use a dynamic Stop Loss based on the Average True Range (ATR), which adapts to market volatility instead of a fixed percentage.",
+    ATR_MULTIPLIER: "The multiplier to apply to the ATR value to set the Stop Loss distance (e.g., 1.5 means SL will be 1.5 * ATR below entry price).",
+    USE_AUTO_BREAKEVEN: "Automatically move the Stop Loss to the entry price once a trade is in profit, eliminating the risk of loss.",
+    BREAKEVEN_TRIGGER_R: "The profit level (as a multiple of initial risk 'R') at which to trigger the move to break-even (e.g., 1.0 means when profit equals initial risk).",
+    USE_RSI_OVERBOUGHT_FILTER: "Prevent opening new trades if the RSI is in the 'overbought' zone, avoiding buying at a potential local top.",
+    RSI_OVERBOUGHT_THRESHOLD: "The RSI level above which a trade signal will be ignored (e.g., 70).",
+    USE_MACD_CONFIRMATION: "Require a confirmation from the MACD indicator (e.g., a positive histogram) before opening a trade, adding a layer of momentum validation.",
+    USE_PARTIAL_TAKE_PROFIT: "Sell a portion of the position at a preliminary profit target and let the remainder run with the trailing stop loss.",
+    PARTIAL_TP_TRIGGER_PCT: "The profit percentage (%) at which to sell the first part of the position.",
+    PARTIAL_TP_SELL_QTY_PCT: "The percentage (%) of the initial position quantity to sell for the partial take profit.",
+    USE_DYNAMIC_POSITION_SIZING: "Allocate a larger position size for the highest quality 'STRONG BUY' signals compared to regular 'BUY' signals.",
+    STRONG_BUY_POSITION_SIZE_PCT: "The percentage of your balance to use for a 'STRONG BUY' signal if dynamic sizing is enabled.",
+    USE_CORRELATION_FILTER: "(Future Feature) Prevent opening trades on multiple, highly-correlated pairs at the same time to diversify risk.",
+    USE_NEWS_FILTER: "(Future Feature) Automatically pause the bot during major economic news events to avoid extreme volatility."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -68,7 +81,7 @@ const SettingsPage: React.FC = () => {
         setTimeout(() => setSaveMessage(null), duration);
     };
 
-    const handleChange = (id: keyof BotSettings, value: string | boolean) => {
+    const handleChange = (id: keyof BotSettings, value: string | boolean | number) => {
         if (settings) {
             setSettings({ ...settings, [id]: value });
         }
@@ -174,8 +187,9 @@ const SettingsPage: React.FC = () => {
                 id={id}
                 value={id in settings ? settings[id as keyof BotSettings] as any : (id === 'newPassword' ? newPassword : confirmPassword)}
                 onChange={(e) => {
+                    const value = type === 'number' ? parseFloat(e.target.value) : e.target.value;
                     if (id in settings) {
-                         handleChange(id as keyof BotSettings, e.target.value)
+                         handleChange(id as keyof BotSettings, value)
                     } else if (id === 'newPassword') {
                         setNewPassword(e.target.value);
                     } else {
@@ -204,7 +218,7 @@ const SettingsPage: React.FC = () => {
         <>
         <div className="space-y-6">
             <div className="flex justify-between items-start">
-                <h2 className="text-3xl font-bold text-white">Bot Settings</h2>
+                <h2 className="text-3xl font-bold text-white">Settings</h2>
                 <div className="flex items-center space-x-4 flex-shrink-0">
                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.type === 'success' ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage.text}</p>}
                     <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
@@ -215,7 +229,7 @@ const SettingsPage: React.FC = () => {
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-8">
                 <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Trading Parameters</h3>
+                    <h3 className="text-lg font-semibold text-white mb-4">Bot Settings</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {renderField('INITIAL_VIRTUAL_BALANCE', 'Initial Virtual Balance ($)')}
                         {renderField('MAX_OPEN_POSITIONS', 'Max Open Positions')}
@@ -271,6 +285,41 @@ const SettingsPage: React.FC = () => {
                         {renderToggle('USE_MULTI_TIMEFRAME_CONFIRMATION', 'Use Multi-Timeframe Confirmation')}
                         {renderToggle('USE_MARKET_REGIME_FILTER', 'Use Market Regime Filter')}
                         {renderToggle('REQUIRE_STRONG_BUY', "Require 'Strong Buy' Only")}
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+                <h3 className="text-lg font-semibold text-white">Advanced Strategy & Risk Management</h3>
+                 <div className="space-y-6">
+                    {/* --- Defense --- */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
+                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Defense</div>
+                        {renderToggle('USE_ATR_STOP_LOSS', 'Use ATR Stop Loss')}
+                        {renderField('ATR_MULTIPLIER', 'ATR Multiplier')}
+                        <div></div>
+                        {renderToggle('USE_AUTO_BREAKEVEN', 'Use Auto Break-even')}
+                        {renderField('BREAKEVEN_TRIGGER_R', 'Break-even Trigger (R)')}
+                        <div></div>
+                        {renderToggle('USE_RSI_OVERBOUGHT_FILTER', 'Use RSI Overbought Filter')}
+                        {renderField('RSI_OVERBOUGHT_THRESHOLD', 'RSI Overbought Threshold')}
+                    </div>
+                    {/* --- Gains Optimization --- */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
+                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Gains Optimization</div>
+                        {renderToggle('USE_PARTIAL_TAKE_PROFIT', 'Use Partial Take Profit')}
+                        {renderField('PARTIAL_TP_TRIGGER_PCT', 'Partial TP Trigger (%)')}
+                        {renderField('PARTIAL_TP_SELL_QTY_PCT', 'Partial TP Sell Qty (%)')}
+                        {renderToggle('USE_MACD_CONFIRMATION', 'Use MACD Confirmation')}
+                    </div>
+                     {/* --- Expert --- */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
+                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Expert</div>
+                        {renderToggle('USE_DYNAMIC_POSITION_SIZING', 'Use Dynamic Position Sizing')}
+                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', 'Strong Buy Position Size (%)')}
+                        <div></div>
+                        {renderToggle('USE_CORRELATION_FILTER', 'Use Correlation Filter')}
+                        {renderToggle('USE_NEWS_FILTER', 'Use News Filter')}
                     </div>
                 </div>
             </div>
