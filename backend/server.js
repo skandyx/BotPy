@@ -63,7 +63,6 @@ wss.on('connection', (ws) => {
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
-            log('WEBSOCKET', `Received message from client: ${message}`);
             if (data.type === 'SUBSCRIBE' && Array.isArray(data.symbols)) {
                 priceFeeder.updateSubscriptions(data.symbols);
             }
@@ -78,9 +77,6 @@ wss.on('connection', (ws) => {
 });
 function broadcast(message) {
     const data = JSON.stringify(message);
-    if (message.type !== 'PRICE_UPDATE') { // Avoid spamming logs for price updates
-        log('WEBSOCKET', `Broadcasting message to ${clients.size} clients: ${JSON.stringify(message.type)}`);
-    }
     for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) {
             client.send(data);
@@ -283,32 +279,19 @@ class RealtimeAnalyzer {
             trend = newKline.close > sma20 ? 'UP' : 'DOWN';
         }
 
-        // --- REVISED SCORING LOGIC (MORE ROBUST) ---
+        // --- SCORING LOGIC WITH MASTER FILTERS ---
         let score = 'HOLD';
-
-        const baseConditionsMet = 
-            trend === 'UP' && 
-            volatility >= this.settings.MIN_VOLATILITY_PCT && 
-            isVolumeConfirmed && 
-            rsi > 50;
         
-        if (baseConditionsMet) {
-            // --- STRICT conditions for 'STRONG BUY' ---
-            // A 'STRONG BUY' is the highest conviction signal. It requires the RSI to be in the
-            // "sweet spot" AND for ALL major trend filters to be bullish, regardless of settings.
-            const isRsiSweetSpot = rsi < 70; // rsi > 50 is already checked in baseConditionsMet
-            const isStrongMarketContext = pairToUpdate.marketRegime === 'UPTREND' && pairToUpdate.trend_4h === 'UP';
-            
-            if (isRsiSweetSpot && isStrongMarketContext) {
-                score = 'STRONG BUY';
-            } else {
-                // --- STANDARD conditions for 'BUY' ---
-                // A regular 'BUY' signal is generated if the user-defined filters are met.
-                // This allows for more flexible strategies if the user disables certain filters.
-                const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
-                const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
-                
-                if (isMarketRegimeOk && isLongTermTrendConfirmed) {
+        // 1. Check master filters first. If they fail, score remains 'HOLD'.
+        const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
+        const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
+
+        // 2. Only if long-term context is bullish, check short-term signals.
+        if (isMarketRegimeOk && isLongTermTrendConfirmed) {
+            if (trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed) {
+                if (rsi > 50 && rsi < 70) {
+                    score = 'STRONG BUY';
+                } else if (rsi > 50) {
                     score = 'BUY';
                 }
             }
@@ -465,8 +448,7 @@ const runScannerLoop = async () => {
         klineFeeder.updateSubscriptions(symbolsArray);
 
     } catch (error) {
-        log("ERROR", `Error during scanner run: ${error.message}. State from previous successful scan is preserved.`);
-        // We no longer clear the cache here. We just log the error and let the bot continue with old data.
+        log("ERROR", `Error during scanner run: ${error.message}`);
     }
 };
 
@@ -527,19 +509,16 @@ const tradingEngine = {
                 // The initial Take Profit is ignored, allowing winners to run.
                 if (currentPrice <= position.stop_loss) {
                     this.closeTrade(position.id, currentPrice, 'Trailing Stop Loss hit');
-                    positionsWereUpdated = true; // A trade was closed
                     continue; // Move to the next position
                 }
             } else {
                 // Standard, fixed TP/SL logic if TSL is disabled.
                 if (currentPrice >= position.take_profit) {
                     this.closeTrade(position.id, currentPrice, 'Take Profit hit');
-                    positionsWereUpdated = true;
                     continue;
                 }
                 if (currentPrice <= position.stop_loss) {
                     this.closeTrade(position.id, currentPrice, 'Stop Loss hit');
-                    positionsWereUpdated = true;
                     continue;
                 }
             }
