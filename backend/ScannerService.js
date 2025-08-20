@@ -38,8 +38,9 @@ export class ScannerService {
             return analyzedPairs;
 
         } catch (error) {
-            this.log('ERROR', `Scanner cycle failed unexpectedly: ${error.stack}`);
-            return [];
+            // This error is now caught by runScannerLoop in server.js, which preserves the last good state.
+            this.log('ERROR', `Scanner cycle failed: ${error.message}. The previous list of pairs will be maintained.`);
+            throw error; // Propagate error so the server knows the scan failed.
         }
     }
 
@@ -78,7 +79,7 @@ export class ScannerService {
             return result;
         } catch (error) {
             this.log('ERROR', `Failed to discover pairs from Binance ticker API: ${error.message}`);
-            return [];
+            throw error; // Propagate the error instead of returning an empty array
         }
     }
     
