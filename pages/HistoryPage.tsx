@@ -111,7 +111,7 @@ const HistoryPage: React.FC = () => {
 
     const totalTrades = sortedTrades.length;
     const winningTrades = sortedTrades.filter(t => (t.pnl || 0) > 0).length;
-    const losingTrades = totalTrades - winningTrades;
+    const losingTrades = sortedTrades.filter(t => (t.pnl || 0) < 0).length;
     const totalPnl = sortedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
@@ -165,7 +165,11 @@ const HistoryPage: React.FC = () => {
   };
   
   const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
-  const getPnlClass = (pnl: number = 0) => pnl >= 0 ? 'text-green-400' : 'text-red-400';
+  const getPnlClass = (pnl: number = 0) => {
+    if (pnl > 0) return 'text-green-400';
+    if (pnl < 0) return 'text-red-400';
+    return 'text-gray-300';
+  };
 
   if (loading) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
@@ -226,7 +230,7 @@ const HistoryPage: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
                             <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${(trade.mode === TradingMode.REAL_LIVE || trade.mode === TradingMode.REAL_PAPER) ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}`}>
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${(trade.mode === TradingMode.REAL_LIVE || trade.mode === TradingMode.REAL_PAPER) ? 'bg-red-900 text-red-300' : 'bg-yellow-600 text-yellow-950'}`}>
                                     {trade.mode}
                                 </span>
                             </td>

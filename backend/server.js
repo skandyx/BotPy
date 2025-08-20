@@ -603,7 +603,7 @@ const tradingEngine = {
             entry_price: entryPrice,
             quantity: quantity,
             stop_loss: entryPrice * (1 - settings.STOP_LOSS_PCT / 100),
-            take_profit: entryPrice * (1 - settings.TAKE_PROFIT_PCT / 100),
+            take_profit: entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100),
             highest_price_since_entry: entryPrice,
             entry_time: new Date().toISOString(),
             status: 'FILLED',

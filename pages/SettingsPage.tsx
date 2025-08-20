@@ -1,10 +1,10 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
 import Spinner from '../components/common/Spinner';
 import { useAppContext } from '../contexts/AppContext';
 import ToggleSwitch from '../components/common/ToggleSwitch';
-import Modal from '../components/common/Modal';
 import Tooltip from '../components/common/Tooltip';
 
 // --- HELPERS ---
@@ -27,43 +27,16 @@ const tooltips: Record<string, string> = {
     REQUIRE_STRONG_BUY: "If enabled, the bot will only open new trades for pairs with a 'STRONG BUY' score. It will ignore pairs with a regular 'BUY' score, making the strategy more selective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn: If a trade on a symbol is closed at a loss, the bot will be blocked from trading that same symbol for this number of hours.",
     EXCLUDED_PAIRS: "A comma-separated list of pairs to ignore completely, regardless of their volume (e.g., USDCUSDT,FDUSDUSDT).",
-    BINANCE_API_KEY: "Your public API key from Binance. Required for REAL modes.",
-    BINANCE_SECRET_KEY: "Your secret API key from Binance. Required for REAL modes. This is stored on the server and never exposed to the frontend."
 };
 
-const SettingsField: React.FC<{ id: keyof BotSettings, label: string, type?: string, formState: any, handleChange: any, children?: React.ReactNode }> = ({ id, label, type = 'text', formState, handleChange, children }) => {
-    return (
-        <div>
-            <label htmlFor={id} className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                <span>{label}</span>
-                {tooltips[id] && <Tooltip text={tooltips[id]} />}
-            </label>
-            {children ? (
-                <div className="mt-1">{children}</div>
-            ) : (
-                <input
-                    type={type}
-                    id={id}
-                    value={formState[id]}
-                    onChange={(e) => handleChange(id, e.target.value)}
-                    className="mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
-                />
-            )}
-        </div>
-    );
-};
+const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
 
 const SettingsPage: React.FC = () => {
     const [settings, setSettings] = useState<BotSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
-    const [isTesting, setIsTesting] = useState(false);
     const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
-    const [isClearing, setIsClearing] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
-    const [isClearDataModalOpen, setIsClearDataModalOpen] = useState(false);
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const { incrementSettingsActivity } = useAppContext();
 
     const loadSettings = useCallback(async () => {
@@ -105,38 +78,6 @@ const SettingsPage: React.FC = () => {
         }
     };
 
-    const handleClearData = async () => {
-        setIsClearing(true);
-        try {
-             // Save any pending changes before clearing, to ensure the new initial balance is used.
-            if(settings) await api.updateSettings(settings);
-            await api.clearAllTradeData();
-            setSaveMessage('All trade data has been cleared.');
-            incrementSettingsActivity();
-        } catch (error: any) {
-            setSaveMessage(`Failed to clear trade data: ${error.message}`);
-        } finally {
-            setIsClearing(false);
-            setIsClearDataModalOpen(false);
-            setTimeout(() => setSaveMessage(''), 3000);
-        }
-    };
-
-    const handleTestConnection = async () => {
-        if (!settings) return;
-        setIsTesting(true);
-        setSaveMessage('');
-        try {
-            const result = await api.testBinanceConnection(settings.BINANCE_API_KEY, settings.BINANCE_SECRET_KEY);
-            setSaveMessage(result.message);
-        } catch (error: any) {
-            setSaveMessage(error.message || 'Connection failed.');
-        } finally {
-            setIsTesting(false);
-            setTimeout(() => setSaveMessage(''), 5000);
-        }
-    };
-
     const handleTestCoinGeckoConnection = async () => {
         if (!settings || !settings.COINGECKO_API_KEY) {
             setSaveMessage('Please enter a CoinGecko API key first.');
@@ -155,76 +96,80 @@ const SettingsPage: React.FC = () => {
             setTimeout(() => setSaveMessage(''), 5000);
         }
     };
-
-    const handleChangePassword = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (newPassword !== confirmPassword) {
-            setSaveMessage("Passwords do not match.");
-            setTimeout(() => setSaveMessage(''), 3000);
-            return;
-        }
-        if (newPassword.length < 6) {
-            setSaveMessage("Password must be at least 6 characters.");
-            setTimeout(() => setSaveMessage(''), 3000);
-            return;
-        }
-        setIsSaving(true);
-        try {
-            const result = await api.changePassword(newPassword);
-            setSaveMessage(result.message);
-            setNewPassword('');
-            setConfirmPassword('');
-        } catch (error: any) {
-            setSaveMessage(error.message || "Failed to change password.");
-        } finally {
-            setIsSaving(false);
-            setTimeout(() => setSaveMessage(''), 5000);
-        }
-    };
-
+    
     if (isLoading || !settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
     
-    const isAnyActionInProgress = isSaving || isClearing || isTesting || isTestingCoinGecko;
+    const isAnyActionInProgress = isSaving || isTestingCoinGecko;
+
+    const renderField = (id: keyof BotSettings, label: string, type: string = "number") => (
+        <div>
+            <label htmlFor={id} className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                <span>{label}</span>
+                {tooltips[id] && <Tooltip text={tooltips[id]} />}
+            </label>
+            <input
+                type={type}
+                id={id}
+                value={settings[id] as any}
+                onChange={(e) => handleChange(id, e.target.value)}
+                className={inputClass}
+            />
+        </div>
+    );
+
+    const renderToggle = (id: keyof BotSettings, label: string) => (
+         <div>
+            <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                <span>{label}</span>
+                {tooltips[id] && <Tooltip text={tooltips[id]} />}
+            </label>
+            <div className="mt-2">
+                <ToggleSwitch checked={settings[id] as boolean} onChange={(val) => handleChange(id, val)} leftLabel="ON" rightLabel="OFF" />
+            </div>
+        </div>
+    );
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-white">Bot Settings</h2>
                 <div className="flex items-center space-x-4">
-                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('cleared') || saveMessage.includes('successful') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
+                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('successful') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
                     <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isSaving ? 'Saving...' : 'Save All Settings'}
                     </button>
                 </div>
             </div>
             
-            {/* Main Settings */}
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6">
-                 <h3 className="text-lg font-semibold text-white mb-4 border-b border-[#2b2f38] pb-2">Trading Parameters</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
-                    <SettingsField id="INITIAL_VIRTUAL_BALANCE" label="Initial Virtual Balance ($)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="MAX_OPEN_POSITIONS" label="Max Open Positions" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="POSITION_SIZE_PCT" label="Position Size (%)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="TAKE_PROFIT_PCT" label="Take Profit (%)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="STOP_LOSS_PCT" label="Stop Loss (%)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="SLIPPAGE_PCT" label="Slippage (%)" type="number" formState={settings} handleChange={handleChange} />
-                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4 pt-4 border-t border-[#2b2f38]">
-                    <SettingsField id="USE_TRAILING_STOP_LOSS" label="Use Trailing Stop Loss" formState={settings} handleChange={handleChange}>
-                        <ToggleSwitch checked={settings.USE_TRAILING_STOP_LOSS} onChange={(val) => handleChange('USE_TRAILING_STOP_LOSS', val)} leftLabel="ON" rightLabel="OFF" />
-                    </SettingsField>
-                    <SettingsField id="TRAILING_STOP_LOSS_PCT" label="Trailing Stop Loss (%)" type="number" formState={settings} handleChange={handleChange} />
-                 </div>
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-8">
+                {/* --- Trading Parameters --- */}
+                <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Trading Parameters</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {renderField('INITIAL_VIRTUAL_BALANCE', 'Initial Virtual Balance ($)')}
+                        {renderField('MAX_OPEN_POSITIONS', 'Max Open Positions')}
+                        {renderField('POSITION_SIZE_PCT', 'Position Size (%)')}
+                        {renderField('TAKE_PROFIT_PCT', 'Take Profit (%)')}
+                        {renderField('STOP_LOSS_PCT', 'Stop Loss (%)')}
+                        {renderField('SLIPPAGE_PCT', 'Slippage (%)')}
+                    </div>
+                    <hr className="border-[#2b2f38] my-6" />
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                        {renderToggle('USE_TRAILING_STOP_LOSS', 'Use Trailing Stop Loss')}
+                        {renderField('TRAILING_STOP_LOSS_PCT', 'Trailing Stop Loss (%)')}
+                    </div>
+                </div>
 
-                 <h3 className="text-lg font-semibold text-white mb-4 border-b border-[#2b2f38] pb-2 mt-8">Market Scanner & Strategy Filters</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
-                    <SettingsField id="MIN_VOLUME_USD" label="Min Volume (USD)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="MIN_VOLATILITY_PCT" label="Min Volatility (%)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="COINGECKO_SYNC_SECONDS" label="Scanner Sync (seconds)" type="number" formState={settings} handleChange={handleChange} />
-                    <SettingsField id="LOSS_COOLDOWN_HOURS" label="Loss Cooldown (Hours)" type="number" formState={settings} handleChange={handleChange} />
-                     <div className="lg:col-span-2">
-                        <div>
-                            <label htmlFor="COINGECKO_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                {/* --- Market Scanner & Strategy Filters --- */}
+                <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Market Scanner & Strategy Filters</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                       {renderField('MIN_VOLUME_USD', 'Min Volume (USD)')}
+                       {renderField('MIN_VOLATILITY_PCT', 'Min Volatility (%)')}
+                       {renderField('COINGECKO_SYNC_SECONDS', 'Scanner Sync (seconds)')}
+                       {renderField('LOSS_COOLDOWN_HOURS', 'Loss Cooldown (Hours)')}
+                        <div className="md:col-span-2">
+                             <label htmlFor="COINGECKO_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
                                 <span>CoinGecko API Key</span>
                                 {tooltips['COINGECKO_API_KEY'] && <Tooltip text={tooltips['COINGECKO_API_KEY']} />}
                             </label>
@@ -246,79 +191,19 @@ const SettingsPage: React.FC = () => {
                                 </button>
                             </div>
                         </div>
+                        <div className="md:col-span-3">
+                            {renderField('EXCLUDED_PAIRS', 'Exclude Pairs (comma-separated)', 'text')}
+                        </div>
                     </div>
-                    <div className="md:col-span-2 lg:col-span-3">
-                        <SettingsField id="EXCLUDED_PAIRS" label="Exclude Pairs (comma-separated)" formState={settings} handleChange={handleChange} />
+                    <hr className="border-[#2b2f38] my-6" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {renderToggle('USE_VOLUME_CONFIRMATION', 'Use Volume Confirmation')}
+                        {renderToggle('USE_MULTI_TIMEFRAME_CONFIRMATION', 'Use Multi-Timeframe Confirmation')}
+                        {renderToggle('USE_MARKET_REGIME_FILTER', 'Use Market Regime Filter')}
+                        {renderToggle('REQUIRE_STRONG_BUY', "Require 'Strong Buy' Only")}
                     </div>
-                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4 pt-4 border-t border-[#2b2f38]">
-                     <SettingsField id="USE_VOLUME_CONFIRMATION" label="Use Volume Confirmation" formState={settings} handleChange={handleChange}>
-                        <ToggleSwitch checked={settings.USE_VOLUME_CONFIRMATION} onChange={(val) => handleChange('USE_VOLUME_CONFIRMATION', val)} leftLabel="ON" rightLabel="OFF" />
-                    </SettingsField>
-                    <SettingsField id="USE_MULTI_TIMEFRAME_CONFIRMATION" label="Use Multi-Timeframe Confirmation" formState={settings} handleChange={handleChange}>
-                        <ToggleSwitch checked={settings.USE_MULTI_TIMEFRAME_CONFIRMATION} onChange={(val) => handleChange('USE_MULTI_TIMEFRAME_CONFIRMATION', val)} leftLabel="ON" rightLabel="OFF" />
-                    </SettingsField>
-                    <SettingsField id="USE_MARKET_REGIME_FILTER" label="Use Market Regime Filter" formState={settings} handleChange={handleChange}>
-                        <ToggleSwitch checked={settings.USE_MARKET_REGIME_FILTER} onChange={(val) => handleChange('USE_MARKET_REGIME_FILTER', val)} leftLabel="ON" rightLabel="OFF" />
-                    </SettingsField>
-                    <SettingsField id="REQUIRE_STRONG_BUY" label="Require 'Strong Buy' Only" formState={settings} handleChange={handleChange}>
-                        <ToggleSwitch checked={settings.REQUIRE_STRONG_BUY} onChange={(val) => handleChange('REQUIRE_STRONG_BUY', val)} leftLabel="ON" rightLabel="OFF" />
-                    </SettingsField>
-                 </div>
-            </div>
-
-            {/* API and Data Management */}
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6">
-                 <h3 className="text-lg font-semibold text-white mb-4 border-b border-[#2b2f38] pb-2">API Credentials</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                    <SettingsField id="BINANCE_API_KEY" label="Binance API Key" formState={settings} handleChange={handleChange} />
-                    <div>
-                        <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                            <span>Binance Secret Key</span>
-                            {tooltips['BINANCE_SECRET_KEY'] && <Tooltip text={tooltips['BINANCE_SECRET_KEY']} />}
-                        </label>
-                        <input
-                            type="password"
-                            id="BINANCE_SECRET_KEY"
-                            value={settings.BINANCE_SECRET_KEY}
-                            onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)}
-                            className="mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
-                        />
-                    </div>
-                 </div>
-                 <div className="mt-4 flex justify-end">
-                    <button onClick={handleTestConnection} disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY} className="inline-flex justify-center rounded-md border border-transparent bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isTesting ? 'Testing...' : 'Test Connection'}
-                    </button>
-                 </div>
-                 
-                 <h3 className="text-lg font-semibold text-white mb-4 border-b border-[#2b2f38] pb-2 mt-8">Security & Data Management</h3>
-                 <form onSubmit={handleChangePassword} className="space-y-4 mt-4 max-w-sm">
-                    <div>
-                        <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">New Password</label>
-                        <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white" />
-                    </div>
-                    <div>
-                        <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">Confirm New Password</label>
-                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white" />
-                    </div>
-                    <div className="pt-2">
-                        <button type="submit" disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                            {isSaving ? 'Updating...' : 'Update Password'}
-                        </button>
-                    </div>
-                </form>
-
-                <div className="mt-6 pt-6 border-t border-[#2b2f38]">
-                    <button onClick={() => setIsClearDataModalOpen(true)} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-red-500 py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isClearing ? 'Clearing...' : 'Clear All Trade Data'}
-                    </button>
                 </div>
             </div>
-
-             <Modal isOpen={isClearDataModalOpen} onClose={() => setIsClearDataModalOpen(false)} onConfirm={handleClearData} title="Clear All Trade Data?" confirmText="Yes, Clear Data" confirmVariant="danger">
-                Are you sure? This will permanently delete all trade history and reset your virtual balance to the configured initial value. This action cannot be undone.
-            </Modal>
         </div>
     );
 };

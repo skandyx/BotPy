@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -101,7 +102,7 @@ const Header: React.FC = () => {
             <div className="flex items-center space-x-4 md:space-x-6">
                 <div className="flex items-center space-x-3">
                     <ToggleSwitch
-                        checked={!isBotRunning}
+                        checked={isBotRunning}
                         onChange={toggleBot}
                         leftLabel="ON"
                         rightLabel="OFF"

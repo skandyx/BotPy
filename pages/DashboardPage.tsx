@@ -21,7 +21,11 @@ const formatPrice = (price: number | undefined | null): string => {
 
 const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void }> = ({ positions, onManualClose }) => {
     const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
-    const getPnlClass = (pnl: number = 0) => pnl >= 0 ? 'text-green-400' : 'text-red-400';
+    const getPnlClass = (pnl: number = 0) => {
+        if (pnl > 0) return 'text-green-400';
+        if (pnl < 0) return 'text-red-400';
+        return 'text-gray-300';
+    };
 
     if (positions.length === 0) {
         return <p className="text-center text-gray-500 py-8">No active positions.</p>;
@@ -60,7 +64,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                         className="text-red-500 hover:text-red-700 transition-colors"
                                         title="Manually Close Position"
                                     >
-                                        <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 BASH_IS_BASH -b 24 24" strokeWidth="2" stroke="currentColor">
+                                        <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
@@ -207,7 +211,7 @@ const DashboardPage: React.FC = () => {
         }
     };
 
-    const totalPnlClass = stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400';
+    const totalPnlClass = stats.total_pnl > 0 ? 'text-green-400' : stats.total_pnl < 0 ? 'text-red-400' : 'text-gray-100';
 
     return (
         <>
