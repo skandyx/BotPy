@@ -63,6 +63,7 @@ wss.on('connection', (ws) => {
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
+            log('WEBSOCKET', `Received message from client: ${JSON.stringify(data)}`);
             if (data.type === 'SUBSCRIBE' && Array.isArray(data.symbols)) {
                 priceFeeder.updateSubscriptions(data.symbols);
             }
@@ -77,6 +78,10 @@ wss.on('connection', (ws) => {
 });
 function broadcast(message) {
     const data = JSON.stringify(message);
+    // Log important broadcasts for debugging
+    if (['SCANNER_UPDATE', 'POSITIONS_UPDATED'].includes(message.type)) {
+        log('WEBSOCKET', `Broadcasting ${message.type} to ${clients.size} clients.`);
+    }
     for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) {
             client.send(data);
@@ -282,22 +287,27 @@ class RealtimeAnalyzer {
         // --- SCORING LOGIC WITH MASTER FILTERS ---
         let score = 'HOLD';
         
-        // 1. Check master filters first. If they fail, score remains 'HOLD'.
         const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
         const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
 
-        // 2. Only if long-term context is bullish, check short-term signals.
-        if (isMarketRegimeOk && isLongTermTrendConfirmed) {
-            if (trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed) {
-                if (rsi > 50 && rsi < 70) {
-                    score = 'STRONG BUY';
-                } else if (rsi > 50) {
-                    score = 'BUY';
-                }
+        const hasStrongBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed;
+        
+        // The 'STRONG BUY' score is now much stricter and does not depend on user settings for MTF/Regime.
+        const isTrueStrongBuy = pairToUpdate.marketRegime === 'UPTREND' && pairToUpdate.trend_4h === 'UP' && hasStrongBuyConditions;
+
+        if (isTrueStrongBuy) {
+            if (rsi > 50 && rsi < 70) {
+                score = 'STRONG BUY';
+            } else if (rsi > 50) {
+                score = 'BUY'; // It's still a very strong setup, just less "perfect" on RSI.
+            }
+        } else if (hasStrongBuyConditions) { // Check for a normal 'BUY' based on user settings
+            if (rsi > 50) {
+                score = 'BUY';
             }
         }
         
-        // 3. Check for loss cooldown override.
+        // Check for loss cooldown override.
         if (score === 'BUY' || score === 'STRONG BUY') {
             const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
             if (cooldownInfo && Date.now() < cooldownInfo.until) {
@@ -448,13 +458,16 @@ const runScannerLoop = async () => {
         klineFeeder.updateSubscriptions(symbolsArray);
 
     } catch (error) {
-        log("ERROR", `Error during scanner run: ${error.message}`);
+        log("ERROR", `Error during scanner run: ${error.message}. Maintaining previous state.`);
+        // Do not clear scannerCache on error, preserving the last known good state.
     }
 };
 
 // --- Trading Engine ---
 const tradingEngine = {
     interval: null,
+    tradedSymbolsThisCandle: new Set(),
+    currentCandleTimestamp: null,
     start: function() {
         if (this.interval) return;
         log('TRADE', 'Trading Engine starting...');
@@ -476,6 +489,14 @@ const tradingEngine = {
         if (!botState.isRunning) return;
         let positionsWereUpdated = false;
 
+        // Anti-Churn: Track the current 1-minute candle
+        const now = new Date();
+        const candleTimestamp = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes()).getTime();
+        if (this.currentCandleTimestamp !== candleTimestamp) {
+            this.tradedSymbolsThisCandle.clear();
+            this.currentCandleTimestamp = candleTimestamp;
+        }
+
         // 1. Manage existing positions
         for (const position of [...botState.activePositions]) {
             const currentPrice = priceFeeder.latestPrices.get(position.symbol);
@@ -489,30 +510,25 @@ const tradingEngine = {
             position.pnl = pnl;
             position.pnl_pct = pnl_pct;
 
-            // Update highest price for TSL. If it updates, we need to save state.
             if (currentPrice > position.highest_price_since_entry) {
                 position.highest_price_since_entry = currentPrice;
-                positionsWereUpdated = true; // The peak price is part of the state
+                positionsWereUpdated = true;
                 if (botState.settings.USE_TRAILING_STOP_LOSS) {
                     const newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
                     if (newStopLoss > position.stop_loss) {
                         position.stop_loss = newStopLoss;
                         log('TRADE', `Trailing Stop Loss for ${position.symbol} updated to ${newStopLoss.toFixed(4)}`);
-                        // The flag is already set, no need to set it again.
                     }
                 }
             }
 
             // --- EXIT LOGIC ---
             if (botState.settings.USE_TRAILING_STOP_LOSS) {
-                // If TSL is enabled, it becomes the only automatic exit condition for profit/loss.
-                // The initial Take Profit is ignored, allowing winners to run.
                 if (currentPrice <= position.stop_loss) {
                     this.closeTrade(position.id, currentPrice, 'Trailing Stop Loss hit');
-                    continue; // Move to the next position
+                    continue;
                 }
             } else {
-                // Standard, fixed TP/SL logic if TSL is disabled.
                 if (currentPrice >= position.take_profit) {
                     this.closeTrade(position.id, currentPrice, 'Take Profit hit');
                     continue;
@@ -535,7 +551,6 @@ const tradingEngine = {
         }
 
         for (const pair of botState.scannerCache) {
-            // THE CORE TRADING DECISION IS NOW MADE HERE WITH REAL-TIME DATA
             const isStrongBuyRequired = botState.settings.REQUIRE_STRONG_BUY;
             const isBuySignal = pair.score === 'BUY';
             const isStrongBuySignal = pair.score === 'STRONG BUY';
@@ -543,10 +558,13 @@ const tradingEngine = {
             if (isStrongBuySignal || (!isStrongBuyRequired && isBuySignal)) {
                 const alreadyInPosition = botState.activePositions.some(p => p.symbol === pair.symbol);
                 if (alreadyInPosition) continue;
+                
+                // Anti-Churn Rule: Only one trade per symbol per 1-minute candle
+                if (this.tradedSymbolsThisCandle.has(pair.symbol)) continue;
 
                 const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
                 if (cooldownInfo && Date.now() < cooldownInfo.until) {
-                    continue; // On cooldown
+                    continue;
                 }
 
                 this.openTrade(pair);
@@ -591,7 +609,9 @@ const tradingEngine = {
             status: 'FILLED',
         };
         botState.activePositions.push(newTrade);
-        priceFeeder.updateSubscriptions([...priceFeeder.subscribedSymbols, newTrade.symbol]); // Ensure we're watching the price
+        this.tradedSymbolsThisCandle.add(newTrade.symbol); // Register trade for this candle
+
+        priceFeeder.updateSubscriptions([...priceFeeder.subscribedSymbols, newTrade.symbol]);
         
         log('TRADE', `OPENED LONG: ${pair.symbol} | Qty: ${quantity.toFixed(4)} @ ${entryPrice.toFixed(4)} | Value: $${cost.toFixed(2)}`);
         saveData('state');
