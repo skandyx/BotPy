@@ -6,6 +6,7 @@ import Spinner from '../components/common/Spinner';
 import { useAppContext } from '../contexts/AppContext';
 import ToggleSwitch from '../components/common/ToggleSwitch';
 import Tooltip from '../components/common/Tooltip';
+import Modal from '../components/common/Modal';
 
 // --- HELPERS ---
 const tooltips: Record<string, string> = {
@@ -27,6 +28,8 @@ const tooltips: Record<string, string> = {
     REQUIRE_STRONG_BUY: "If enabled, the bot will only open new trades for pairs with a 'STRONG BUY' score. It will ignore pairs with a regular 'BUY' score, making the strategy more selective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn: If a trade on a symbol is closed at a loss, the bot will be blocked from trading that same symbol for this number of hours.",
     EXCLUDED_PAIRS: "A comma-separated list of pairs to ignore completely, regardless of their volume (e.g., USDCUSDT,FDUSDUSDT).",
+    BINANCE_API_KEY: "Your public Binance API key. Required for live and paper trading modes.",
+    BINANCE_SECRET_KEY: "Your secret Binance API key. This is stored securely on the server and is never exposed to the frontend.",
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -36,8 +39,12 @@ const SettingsPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
-    const [saveMessage, setSaveMessage] = useState('');
-    const { incrementSettingsActivity } = useAppContext();
+    const [isTestingBinance, setIsTestingBinance] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+    const { incrementSettingsActivity, refreshData } = useAppContext();
 
     const loadSettings = useCallback(async () => {
         setIsLoading(true);
@@ -46,7 +53,7 @@ const SettingsPage: React.FC = () => {
             setSettings(data);
         } catch (error) {
             console.error("Failed to load settings", error);
-            setSaveMessage("Error: Could not load settings from server.");
+            showMessage("Error: Could not load settings from server.", 'error');
         } finally {
             setIsLoading(false);
         }
@@ -55,6 +62,11 @@ const SettingsPage: React.FC = () => {
     useEffect(() => {
         loadSettings();
     }, [loadSettings]);
+
+    const showMessage = (text: string, type: 'success' | 'error' = 'success', duration: number = 4000) => {
+        setSaveMessage({ text, type });
+        setTimeout(() => setSaveMessage(null), duration);
+    };
 
     const handleChange = (id: keyof BotSettings, value: string | boolean) => {
         if (settings) {
@@ -65,43 +77,93 @@ const SettingsPage: React.FC = () => {
     const handleSave = async () => {
         if (!settings) return;
         setIsSaving(true);
-        setSaveMessage('');
         try {
             await api.updateSettings(settings);
             incrementSettingsActivity();
-            setSaveMessage('Settings saved successfully!');
+            showMessage('Settings saved successfully!');
         } catch (error: any) {
-            setSaveMessage(`Failed to save settings: ${error.message}`);
+            showMessage(`Failed to save settings: ${error.message}`, 'error');
         } finally {
             setIsSaving(false);
-            setTimeout(() => setSaveMessage(''), 3000);
         }
     };
 
     const handleTestCoinGeckoConnection = async () => {
         if (!settings || !settings.COINGECKO_API_KEY) {
-            setSaveMessage('Please enter a CoinGecko API key first.');
-            setTimeout(() => setSaveMessage(''), 3000);
+            showMessage('Please enter a CoinGecko API key first.', 'error');
             return;
         }
         setIsTestingCoinGecko(true);
-        setSaveMessage('');
         try {
             const result = await api.testCoinGeckoConnection(settings.COINGECKO_API_KEY);
-            setSaveMessage(result.message);
+            showMessage(result.message, result.success ? 'success' : 'error');
         } catch (error: any) {
-            setSaveMessage(error.message || 'CoinGecko connection failed.');
+            showMessage(error.message || 'CoinGecko connection failed.', 'error');
         } finally {
             setIsTestingCoinGecko(false);
-            setTimeout(() => setSaveMessage(''), 5000);
+        }
+    };
+
+    const handleTestBinanceConnection = async () => {
+        if (!settings || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY) {
+             showMessage('Please enter both Binance API and Secret keys.', 'error');
+            return;
+        }
+        setIsTestingBinance(true);
+        try {
+            const result = await api.testBinanceConnection(settings.BINANCE_API_KEY, settings.BINANCE_SECRET_KEY);
+            showMessage(result.message, result.success ? 'success' : 'error');
+        } catch (error: any) {
+            showMessage(error.message || 'Binance connection test failed.', 'error');
+        } finally {
+            setIsTestingBinance(false);
+        }
+    };
+
+    const handleUpdatePassword = async () => {
+        if (!newPassword) {
+            showMessage('Password cannot be empty.', 'error');
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            showMessage('Passwords do not match.', 'error');
+            return;
+        }
+        setIsSaving(true);
+        try {
+            const result = await api.changePassword(newPassword);
+            showMessage(result.message, result.success ? 'success' : 'error');
+            if (result.success) {
+                setNewPassword('');
+                setConfirmPassword('');
+            }
+        } catch (error: any) {
+            showMessage(error.message || 'Failed to update password.', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+    
+    const handleClearData = async () => {
+        setIsClearModalOpen(false);
+        setIsSaving(true);
+        try {
+            await api.clearAllTradeData();
+            showMessage('All trade data has been cleared.');
+            refreshData(); 
+            loadSettings();
+        } catch (error: any) {
+            showMessage(`Failed to clear data: ${error.message}`, 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
     
     if (isLoading || !settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
     
-    const isAnyActionInProgress = isSaving || isTestingCoinGecko;
+    const isAnyActionInProgress = isSaving || isTestingCoinGecko || isTestingBinance;
 
-    const renderField = (id: keyof BotSettings, label: string, type: string = "number") => (
+    const renderField = (id: keyof BotSettings | 'newPassword' | 'confirmPassword', label: string, type: string = "number", props: any = {}) => (
         <div>
             <label htmlFor={id} className="flex items-center space-x-2 text-sm font-medium text-gray-300">
                 <span>{label}</span>
@@ -110,15 +172,24 @@ const SettingsPage: React.FC = () => {
             <input
                 type={type}
                 id={id}
-                value={settings[id] as any}
-                onChange={(e) => handleChange(id, e.target.value)}
+                value={id in settings ? settings[id as keyof BotSettings] as any : (id === 'newPassword' ? newPassword : confirmPassword)}
+                onChange={(e) => {
+                    if (id in settings) {
+                         handleChange(id as keyof BotSettings, e.target.value)
+                    } else if (id === 'newPassword') {
+                        setNewPassword(e.target.value);
+                    } else {
+                        setConfirmPassword(e.target.value);
+                    }
+                }}
                 className={inputClass}
+                {...props}
             />
         </div>
     );
 
     const renderToggle = (id: keyof BotSettings, label: string) => (
-         <div>
+         <div className="flex flex-col justify-between h-full">
             <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">
                 <span>{label}</span>
                 {tooltips[id] && <Tooltip text={tooltips[id]} />}
@@ -130,19 +201,19 @@ const SettingsPage: React.FC = () => {
     );
 
     return (
+        <>
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-white">Bot Settings</h2>
-                <div className="flex items-center space-x-4">
-                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.includes('success') || saveMessage.includes('successful') ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage}</p>}
-                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+            <div className="flex justify-between items-start">
+                <h2 className="text-3xl font-bold text-white">Bot Settings</h2>
+                <div className="flex items-center space-x-4 flex-shrink-0">
+                    {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.type === 'success' ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage.text}</p>}
+                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
                         {isSaving ? 'Saving...' : 'Save All Settings'}
                     </button>
                 </div>
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-8">
-                {/* --- Trading Parameters --- */}
                 <div>
                     <h3 className="text-lg font-semibold text-white mb-4">Trading Parameters</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -160,7 +231,6 @@ const SettingsPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* --- Market Scanner & Strategy Filters --- */}
                 <div>
                     <h3 className="text-lg font-semibold text-white mb-4">Market Scanner & Strategy Filters</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -204,7 +274,48 @@ const SettingsPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+                <h3 className="text-lg font-semibold text-white">API Credentials</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                    {renderField('BINANCE_API_KEY', 'Binance API Key', 'text')}
+                    {renderField('BINANCE_SECRET_KEY', 'Binance Secret Key', 'password')}
+                </div>
+                <div className="flex justify-end">
+                    <button onClick={handleTestBinanceConnection} disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY} className="inline-flex justify-center rounded-md border border-[#3e4451] bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                        {isTestingBinance ? 'Testing...' : 'Test Connection'}
+                    </button>
+                </div>
+            </div>
+            
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+                 <h3 className="text-lg font-semibold text-white">Security & Data Management</h3>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                    {renderField('newPassword', 'New Password', 'password')}
+                    {renderField('confirmPassword', 'Confirm New Password', 'password')}
+                 </div>
+                 <div className="flex justify-between items-center pt-4 border-t border-[#2b2f38] mt-6">
+                     <button onClick={() => setIsClearModalOpen(true)} disabled={isSaving} className="inline-flex justify-center rounded-md border border-red-800 bg-transparent py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                        Clear All Trade Data
+                    </button>
+                    <button onClick={handleUpdatePassword} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                        {isSaving ? 'Updating...' : 'Update Password'}
+                    </button>
+                 </div>
+            </div>
         </div>
+        <Modal
+            isOpen={isClearModalOpen}
+            onClose={() => setIsClearModalOpen(false)}
+            onConfirm={handleClearData}
+            title="Clear All Trade Data?"
+            confirmText="Yes, Clear Data"
+            confirmVariant="danger"
+        >
+            This action is irreversible. It will permanently delete all trade history 
+            and reset your virtual balance. Are you sure you want to proceed?
+      </Modal>
+      </>
     );
 };
 
