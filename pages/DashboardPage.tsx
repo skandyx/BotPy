@@ -28,7 +28,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
     };
 
     if (positions.length === 0) {
-        return <p className="text-center text-gray-500 py-8">No active positions.</p>;
+        return <p className="text-center text-gray-500 py-8">Aucune position active.</p>;
     }
 
     return (
@@ -36,11 +36,11 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbol', 'Side', 'Entry Price', 'Current Price', 'Quantity', 'Stop Loss', 'Take Profit', 'PnL', 'PnL %'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL', 'PnL %'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
-                           <span className="sr-only">Close</span>
+                           <span className="sr-only">Fermer</span>
                         </th>
                     </tr>
                 </thead>
@@ -62,7 +62,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                     <button
                                         onClick={() => onManualClose(pos)}
                                         className="text-red-500 hover:text-red-700 transition-colors"
-                                        title="Manually Close Position"
+                                        title="Fermer la position manuellement"
                                     >
                                         <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -175,7 +175,7 @@ const DashboardPage: React.FC = () => {
     
     const performanceChartData = useMemo(() => {
         if (!tradeHistory || tradeHistory.length === 0) {
-            return [{ name: 'Start', pnl: 0 }];
+            return [{ name: 'Début', pnl: 0 }];
         }
     
         const sortedTrades = [...tradeHistory]
@@ -191,7 +191,7 @@ const DashboardPage: React.FC = () => {
             };
         });
         
-        return [{ name: 'Start', pnl: 0 }, ...data];
+        return [{ name: 'Début', pnl: 0 }, ...data];
     }, [tradeHistory]);
 
 
@@ -200,14 +200,14 @@ const DashboardPage: React.FC = () => {
     }
 
     if (!status || !stats || !settings) {
-        return <p className="text-center text-red-500">Failed to load dashboard data.</p>;
+        return <p className="text-center text-red-500">Échec du chargement des données du tableau de bord.</p>;
     }
     
     const getModeLabel = (mode: TradingMode) => {
         switch (mode) {
-            case TradingMode.VIRTUAL: return 'Virtual';
-            case TradingMode.REAL_PAPER: return 'Real (Paper)';
-            case TradingMode.REAL_LIVE: return 'Real (Live)';
+            case TradingMode.VIRTUAL: return 'Virtuel';
+            case TradingMode.REAL_PAPER: return 'Réel (Papier)';
+            case TradingMode.REAL_LIVE: return 'Réel (Live)';
         }
     };
 
@@ -217,10 +217,10 @@ const DashboardPage: React.FC = () => {
         <>
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Balance" value={`$${status.balance.toFixed(2)}`} subtitle={getModeLabel(status.mode)} />
-                <StatCard title="Open Positions" value={status.positions} subtitle={`Max: ${status.max_open_positions}`} />
-                <StatCard title="Total PnL" value={`$${stats.total_pnl.toFixed(2)}`} subtitle={`Win Rate: ${stats.win_rate.toFixed(1)}%`} valueClassName={totalPnlClass} />
-                <StatCard title="Monitored Pairs" value={status.monitored_pairs} subtitle={`Volume > $${(settings.MIN_VOLUME_USD / 1000000).toFixed(0)}M`} />
+                <StatCard title="Solde" value={`$${status.balance.toFixed(2)}`} subtitle={getModeLabel(status.mode)} />
+                <StatCard title="Positions Ouvertes" value={status.positions} subtitle={`Max: ${status.max_open_positions}`} />
+                <StatCard title="PnL Total" value={`$${stats.total_pnl.toFixed(2)}`} subtitle={`Taux de Victoire: ${stats.win_rate.toFixed(1)}%`} valueClassName={totalPnlClass} />
+                <StatCard title="Paires Suivies" value={status.monitored_pairs} subtitle={`Volume > $${(settings.MIN_VOLUME_USD / 1000000).toFixed(0)}M`} />
             </div>
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
@@ -243,12 +243,12 @@ const DashboardPage: React.FC = () => {
             </div>
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
-                <h3 className="text-lg font-semibold text-white mb-4">Active Positions</h3>
+                <h3 className="text-lg font-semibold text-white mb-4">Positions Actives</h3>
                 <ActivePositionsTable positions={positions} onManualClose={openCloseModal} />
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
-                 <h3 className="text-lg font-semibold text-white mb-4">Top Monitored Pairs</h3>
+                 <h3 className="text-lg font-semibold text-white mb-4">Top Paires Suivies</h3>
                  <div className="flex flex-wrap gap-2">
                      {status.top_pairs.map(pair => (
                          <span key={pair} className="bg-gray-700 text-yellow-300 text-xs font-medium px-2.5 py-1 rounded-full">{pair}</span>
@@ -260,12 +260,12 @@ const DashboardPage: React.FC = () => {
             isOpen={isCloseModalOpen}
             onClose={() => setIsCloseModalOpen(false)}
             onConfirm={handleManualClose}
-            title={`Close position for ${tradeToClose?.symbol}?`}
-            confirmText="Yes, Close Position"
+            title={`Fermer la position pour ${tradeToClose?.symbol} ?`}
+            confirmText="Oui, Fermer la Position"
             confirmVariant="danger"
         >
-            You are about to manually close the trade for {tradeToClose?.quantity} {tradeToClose?.symbol}.
-            This action cannot be undone.
+            Vous êtes sur le point de fermer manuellement la position pour {tradeToClose?.quantity} {tradeToClose?.symbol}.
+            Cette action est irréversible.
         </Modal>
         </>
     );

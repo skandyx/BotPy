@@ -19,9 +19,8 @@ class PriceStore {
 
     public updatePrice(update: PriceUpdate): void {
         this.prices.set(update.symbol, update);
-        // The scanner store is updated via the main 'SCANNER_UPDATE' websocket message.
-        // Calling it here is redundant and inefficient.
-        // scannerStore.handlePriceUpdate(update);
+        // This call is necessary to show 1-second price updates on the scanner page.
+        scannerStore.handlePriceUpdate(update);
         
         // Notify direct subscribers (like positionService for real-time PnL)
         this.subscribers.forEach(callback => callback(update));

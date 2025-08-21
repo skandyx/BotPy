@@ -55,7 +55,7 @@ const Sidebar: React.FC = () => {
       <nav className="flex-1 px-4 py-6 space-y-2">
         <NavItem to="/dashboard" isCollapsed={isCollapsed}>
           <DashboardIcon />
-          <span className={navItemTextClass}>Dashboard</span>
+          <span className={navItemTextClass}>Tableau de Bord</span>
         </NavItem>
         <NavItem to="/scanner" isCollapsed={isCollapsed}>
           <ScannerIcon />
@@ -63,11 +63,11 @@ const Sidebar: React.FC = () => {
         </NavItem>
         <NavItem to="/history" isCollapsed={isCollapsed}>
           <HistoryIcon />
-          <span className={navItemTextClass}>History</span>
+          <span className={navItemTextClass}>Historique</span>
         </NavItem>
         <NavItem to="/settings" isCollapsed={isCollapsed}>
           <SettingsIcon />
-          <span className={navItemTextClass}>Settings</span>
+          <span className={navItemTextClass}>Paramètres</span>
         </NavItem>
         <NavItem to="/console" isCollapsed={isCollapsed}>
           <ConsoleIcon />

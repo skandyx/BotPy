@@ -131,11 +131,11 @@ const HistoryPage: React.FC = () => {
   
   const handleExport = () => {
     if (filteredAndSortedTrades.length === 0) {
-        alert("No data to export.");
+        alert("Aucune donnée à exporter.");
         return;
     }
 
-    const headers = ['ID', 'Symbol', 'Side', 'Mode', 'Entry Time', 'Exit Time', 'Entry Price', 'Exit Price', 'Quantity', 'PnL', 'PnL %'];
+    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Quantité', 'PnL', 'PnL %'];
     
     const rows = filteredAndSortedTrades.map(trade => [
         trade.id,
@@ -158,7 +158,7 @@ const HistoryPage: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `trade_history_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `historique_trades_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -179,12 +179,12 @@ const HistoryPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white">Trade History</h2>
+      <h2 className="text-2xl font-bold text-white">Historique des Transactions</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-         <StatCard title="Total P&L" value={`$${totalPnl.toFixed(2)}`} valueClassName={getPnlClass(totalPnl)} subtitle="Based on current filters" />
-         <StatCard title="Trades (Win/Loss)" value={`${winningTrades} / ${losingTrades}`} subtitle="Based on current filters" />
-         <StatCard title="Win Rate" value={`${winRate.toFixed(1)}%`} subtitle="Based on current filters"/>
+         <StatCard title="P&L Total" value={`$${totalPnl.toFixed(2)}`} valueClassName={getPnlClass(totalPnl)} subtitle="Basé sur les filtres actuels" />
+         <StatCard title="Trades (Gagnant/Perdant)" value={`${winningTrades} / ${losingTrades}`} subtitle="Basé sur les filtres actuels" />
+         <StatCard title="Taux de Victoire" value={`${winRate.toFixed(1)}%`} subtitle="Basé sur les filtres actuels"/>
       </div>
 
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
@@ -195,7 +195,7 @@ const HistoryPage: React.FC = () => {
                 </div>
                 <input
                     type="text"
-                    placeholder="Filter by Symbol..."
+                    placeholder="Filtrer par Symbole..."
                     value={symbolFilter}
                     onChange={(e) => setSymbolFilter(e.target.value)}
                     className="block w-full rounded-md border-[#3e4451] bg-[#0c0e12]/50 pl-10 pr-4 py-2 shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
@@ -206,20 +206,20 @@ const HistoryPage: React.FC = () => {
                 className="inline-flex items-center justify-center rounded-md border border-transparent bg-[#f0b90b] px-4 py-2 text-sm font-medium text-black font-semibold shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] w-full md:w-auto"
             >
                 <ExportIcon />
-                <span className="ml-2">Export CSV</span>
+                <span className="ml-2">Exporter en CSV</span>
             </button>
         </div>
         <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 24rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f] sticky top-0">
                     <tr>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbol</SortableHeader>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Side</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Côté</th>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mode</th>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Entry Time</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Exit Time</SortableHeader>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Entry Price</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Exit Price</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Heure d'Entrée</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Heure de Sortie</SortableHeader>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prix d'Entrée</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prix de Sortie</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl">PnL</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl_pct">PnL %</SortableHeader>
                     </tr>
@@ -245,7 +245,7 @@ const HistoryPage: React.FC = () => {
                      {filteredAndSortedTrades.length === 0 && (
                         <tr>
                             <td colSpan={9} className="text-center py-10 text-gray-500">
-                                No trades found for the current filter.
+                                Aucun trade trouvé pour le filtre actuel.
                             </td>
                         </tr>
                     )}

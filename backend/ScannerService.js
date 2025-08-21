@@ -7,7 +7,9 @@ export class ScannerService {
     constructor(log, klineDataDir) {
         this.log = log;
         this.klineDataDir = klineDataDir;
-        this.timeframes = ['4h', '1h', '30m', '15m'];
+        // The 4h is the only one needed for the main periodic scan (market regime)
+        // Others are now handled by real-time websockets.
+        this.timeframes = ['4h'];
     }
 
     async runScan(settings) {
@@ -33,7 +35,7 @@ export class ScannerService {
             const results = await Promise.all(analysisPromises);
             const analyzedPairs = results.filter(p => p !== null);
             
-            this.log('SCANNER', `Scanner finished. ${analyzedPairs.length} viable pairs analyzed.`);
+            this.log('SCANNER', `Scanner finished. ${analyzedPairs.length} viable pairs analyzed for market regime.`);
             return analyzedPairs;
 
         } catch (error) {
@@ -114,24 +116,20 @@ export class ScannerService {
         if (lastSma50 > lastSma200) marketRegime = 'UPTREND';
         else if (lastSma50 < lastSma200) marketRegime = 'DOWNTREND';
         
+        // This is a pre-filter. The main server can decide to ignore this pair
+        // even if it passes here, based on real-time data.
         if (settings.USE_MARKET_REGIME_FILTER && marketRegime !== 'UPTREND') {
              return null;
         }
         
-        const klinePromises = this.timeframes.map(tf => this.getPersistentKlines(symbol, tf, 50));
-        const [klines1h, klines30m, klines15m] = await Promise.all(klinePromises.slice(1));
-
         const trend_4h = this._calculateTrend(klines4h).trend;
-        const trend_1h = this._calculateTrend(klines1h).trend;
-        const trend_30m = this._calculateTrend(klines30m).trend;
-        const trend_15m = this._calculateTrend(klines15m).trend;
 
         return {
             priceDirection: 'neutral',
-            trend: 'NEUTRAL',
-            trend_15m,
-            trend_30m,
-            trend_1h,
+            trend: 'NEUTRAL', // 1m trend will be populated by websocket
+            trend_15m: 'NEUTRAL', // Populated by websocket
+            trend_30m: 'NEUTRAL', // Populated by websocket
+            trend_1h: 'NEUTRAL', // Populated by websocket
             trend_4h,
             marketRegime,
             rsi: 50,

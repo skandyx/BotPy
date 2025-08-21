@@ -297,6 +297,28 @@ class RealtimeAnalyzer {
         }
     }
 
+    handleLongerTimeframeKline(klineMsg, interval) {
+        const symbol = klineMsg.s;
+        const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
+        if (!pairToUpdate) return;
+        
+        // This is a simplified update. We only need to know if the trend changed.
+        // For a full analysis, we'd need more historical data for the given interval.
+        // Let's assume ScannerService provides the initial full analysis. This is just for updates.
+        // For simplicity, we'll re-request the latest data and recalculate trend.
+        // A more optimized approach would be to manage persistent klines here too.
+        scannerService.getPersistentKlines(symbol, interval, 50).then(klines => {
+            const trendResult = scannerService._calculateTrend(klines);
+            const trendKey = `trend_${interval}`;
+            
+            if (pairToUpdate[trendKey] !== trendResult.trend) {
+                this.log('SCANNER', `[${interval}] Trend for ${symbol} updated to ${trendResult.trend}.`);
+                pairToUpdate[trendKey] = trendResult.trend;
+                broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+            }
+        });
+    }
+
     async handleKline(klineMsg) {
         if (!this.settings || Object.keys(this.settings).length === 0) return;
 
@@ -502,19 +524,30 @@ const priceFeeder = {
     }
 };
 
-const klineFeeder = {
-    ...createBinanceFeeder('KlineFeeder', (s) => `${s.toLowerCase()}@kline_1m`),
+const createKlineFeeder = (interval) => ({
+    ...createBinanceFeeder(`KlineFeeder_${interval}`, (s) => `${s.toLowerCase()}@kline_${interval}`),
     handleMessage: async function(data) {
         const message = JSON.parse(data.toString());
         if (message.data && message.data.e === 'kline') {
             const kline = message.data;
             if (kline.k.x) { // Is candle closed?
-                log('BINANCE_WS', `1m Kline closed for ${kline.s}: C=${kline.k.c} V=${kline.k.v}`);
-                await realtimeAnalyzer.handleKline(kline);
+                log('BINANCE_WS', `[${interval}] Kline closed for ${kline.s}: C=${kline.k.c}`);
+                if (interval === '1m') {
+                    await realtimeAnalyzer.handleKline(kline);
+                } else {
+                    realtimeAnalyzer.handleLongerTimeframeKline(kline, interval);
+                }
             }
         }
     }
-};
+});
+
+const klineFeeder1m = createKlineFeeder('1m');
+const klineFeeder15m = createKlineFeeder('15m');
+const klineFeeder30m = createKlineFeeder('30m');
+const klineFeeder1h = createKlineFeeder('1h');
+const klineFeeder4h = createKlineFeeder('4h');
+const allKlineFeeders = [klineFeeder1m, klineFeeder15m, klineFeeder30m, klineFeeder1h, klineFeeder4h];
 
 
 // --- Main Scanner Loop ---
@@ -536,6 +569,7 @@ const runScannerLoop = async () => {
                 // Keep the real-time data from the existing pair (rsi, adx, price, score, etc.)
                 // and update it with the long-term data from the new scan.
                 existingPair.trend_4h = newPair.trend_4h;
+                // These are now handled by websockets, but initial scan provides a baseline
                 existingPair.trend_1h = newPair.trend_1h;
                 existingPair.trend_30m = newPair.trend_30m;
                 existingPair.trend_15m = newPair.trend_15m;
@@ -555,7 +589,7 @@ const runScannerLoop = async () => {
         const symbolsToWatch = new Set([...botState.scannerCache.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
         const symbolsArray = Array.from(symbolsToWatch);
         priceFeeder.updateSubscriptions(symbolsArray);
-        klineFeeder.updateSubscriptions(symbolsArray);
+        allKlineFeeders.forEach(feeder => feeder.updateSubscriptions(symbolsArray));
 
     } catch (error) {
         log("ERROR", `Error during scanner run: ${error.message}. Maintaining previous state.`);
