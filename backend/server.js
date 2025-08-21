@@ -137,7 +137,6 @@ const loadData = async () => {
             COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 60,
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
-            USE_MULTI_TIMEFRAME_CONFIRMATION: process.env.USE_MULTI_TIMEFRAME_CONFIRMATION === 'true',
             USE_MARKET_REGIME_FILTER: process.env.USE_MARKET_REGIME_FILTER === 'true',
             REQUIRE_STRONG_BUY: process.env.REQUIRE_STRONG_BUY === 'true',
             LOSS_COOLDOWN_HOURS: parseInt(process.env.LOSS_COOLDOWN_HOURS, 10) || 4,
@@ -157,6 +156,11 @@ const loadData = async () => {
             USE_DYNAMIC_POSITION_SIZING: false,
             STRONG_BUY_POSITION_SIZE_PCT: 3.0,
             USE_ML_MODEL_FILTER: false,
+            USE_CONFLUENCE_FILTER_1M: true,
+            USE_CONFLUENCE_FILTER_15M: true,
+            USE_CONFLUENCE_FILTER_30M: true,
+            USE_CONFLUENCE_FILTER_1H: true,
+            USE_CONFLUENCE_FILTER_4H: true,
             USE_CORRELATION_FILTER: false,
             USE_NEWS_FILTER: false,
         };
@@ -353,16 +357,24 @@ class RealtimeAnalyzer {
 
         const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
         
-        let trend = 'NEUTRAL';
+        let trend1m = 'NEUTRAL';
         if (adx > 25) {
-            trend = newKline.close > sma20 ? 'UP' : 'DOWN';
+            trend1m = newKline.close > sma20 ? 'UP' : 'DOWN';
         }
 
         // --- SCORING LOGIC WITH ADVANCED FILTERS ---
         let score = 'HOLD';
         
         const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
-        const isLongTermTrendConfirmed = !this.settings.USE_MULTI_TIMEFRAME_CONFIRMATION || pairToUpdate.trend_4h === 'UP';
+        
+        // Full Multi-Timeframe Confluence Check
+        const isConfluence4hOk = !this.settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP';
+        const isConfluence1hOk = !this.settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP';
+        const isConfluence30mOk = !this.settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP';
+        const isConfluence15mOk = !this.settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP';
+        const isConfluence1mOk = !this.settings.USE_CONFLUENCE_FILTER_1M || trend1m === 'UP';
+        const isFullConfluenceOk = isConfluence4hOk && isConfluence1hOk && isConfluence30mOk && isConfluence15mOk && isConfluence1mOk;
+
         const isMacdConfirmed = !this.settings.USE_MACD_CONFIRMATION || (macd && macd.histogram > 0);
         const isRsiOk = rsi > 50 && (!this.settings.USE_RSI_OVERBOUGHT_FILTER || rsi < this.settings.RSI_OVERBOUGHT_THRESHOLD);
 
@@ -370,14 +382,14 @@ class RealtimeAnalyzer {
         const mlResult = this._calculateMlScore({
             rsi: rsi,
             adx: adx,
-            trend1m: trend,
+            trend1m: trend1m,
             trend4h: pairToUpdate.trend_4h,
             marketRegime: pairToUpdate.marketRegime,
             macdHistogram: macd.histogram,
         });
         const isMlConfirmed = !this.settings.USE_ML_MODEL_FILTER || (mlResult.prediction === 'UP' && mlResult.score > 65);
 
-        const hasBaseBuyConditions = isMarketRegimeOk && isLongTermTrendConfirmed && trend === 'UP' && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed && isMlConfirmed;
+        const hasBaseBuyConditions = isMarketRegimeOk && isFullConfluenceOk && volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed && isMlConfirmed;
         
         if (hasBaseBuyConditions && isRsiOk) {
             if (rsi > 50 && rsi < 70) {
@@ -399,7 +411,7 @@ class RealtimeAnalyzer {
         pairToUpdate.adx = adx;
         pairToUpdate.atr = atr;
         pairToUpdate.macd = macd;
-        pairToUpdate.trend = trend;
+        pairToUpdate.trend = trend1m; // This is the 1m trend
         pairToUpdate.score = score;
         pairToUpdate.volatility = volatility;
         pairToUpdate.ml_score = mlResult.score;
@@ -524,6 +536,9 @@ const runScannerLoop = async () => {
                 // Keep the real-time data from the existing pair (rsi, adx, price, score, etc.)
                 // and update it with the long-term data from the new scan.
                 existingPair.trend_4h = newPair.trend_4h;
+                existingPair.trend_1h = newPair.trend_1h;
+                existingPair.trend_30m = newPair.trend_30m;
+                existingPair.trend_15m = newPair.trend_15m;
                 existingPair.marketRegime = newPair.marketRegime;
                 existingPair.volume = newPair.volume; // Volume also updates periodically
                 existingPair.macd_4h = newPair.macd_4h;

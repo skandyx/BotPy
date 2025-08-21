@@ -28,7 +28,6 @@ MIN_VOLATILITY_PCT=0.5
 COINGECKO_SYNC_SECONDS=60
 EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"
 USE_VOLUME_CONFIRMATION=true
-USE_MULTI_TIMEFRAME_CONFIRMATION=true
 USE_MARKET_REGIME_FILTER=true
 REQUIRE_STRONG_BUY=false
 LOSS_COOLDOWN_HOURS=4
@@ -66,6 +65,14 @@ STRONG_BUY_POSITION_SIZE_PCT=3.0
 
 # Exiger une confirmation du modèle ML avant d'ouvrir un trade. (true/false)
 USE_ML_MODEL_FILTER=false
+
+# --- FILTRE DE CONFLUENCE MULTI-TIMEFRAME ---
+# Si activé, exige que la tendance sur l'unité de temps correspondante soit HAUSSIÈRE pour valider un signal d'achat.
+USE_CONFLUENCE_FILTER_1M=true
+USE_CONFLUENCE_FILTER_15M=true
+USE_CONFLUENCE_FILTER_30M=true
+USE_CONFLUENCE_FILTER_1H=true
+USE_CONFLUENCE_FILTER_4H=true
 
 # (Fonctionnalité future) Empêcher l'ouverture de trades sur des paires fortement corrélées. (true/false)
 USE_CORRELATION_FILTER=false

@@ -52,8 +52,11 @@ export interface ScannedPair {
     volume: number;
     price: number;
     priceDirection: 'up' | 'down' | 'neutral';
-    trend: 'UP' | 'DOWN' | 'NEUTRAL';
-    trend_4h?: 'UP' | 'DOWN' | 'NEUTRAL'; // For multi-timeframe confirmation
+    trend: 'UP' | 'DOWN' | 'NEUTRAL'; // 1m trend
+    trend_15m?: 'UP' | 'DOWN' | 'NEUTRAL';
+    trend_30m?: 'UP' | 'DOWN' | 'NEUTRAL';
+    trend_1h?: 'UP' | 'DOWN' | 'NEUTRAL';
+    trend_4h?: 'UP' | 'DOWN' | 'NEUTRAL';
     marketRegime?: 'UPTREND' | 'DOWNTREND' | 'NEUTRAL'; // For market regime filter
     rsi: number;
     adx: number;
@@ -109,7 +112,6 @@ export interface BotSettings {
     COINGECKO_SYNC_SECONDS: number;
     EXCLUDED_PAIRS: string;
     USE_VOLUME_CONFIRMATION: boolean;
-    USE_MULTI_TIMEFRAME_CONFIRMATION: boolean;
     USE_MARKET_REGIME_FILTER: boolean;
     REQUIRE_STRONG_BUY: boolean;
     LOSS_COOLDOWN_HOURS: number;
@@ -145,6 +147,13 @@ export interface BotSettings {
 
     // Machine Learning
     USE_ML_MODEL_FILTER: boolean;
+
+    // Full Multi-Timeframe Confluence
+    USE_CONFLUENCE_FILTER_1M: boolean;
+    USE_CONFLUENCE_FILTER_15M: boolean;
+    USE_CONFLUENCE_FILTER_30M: boolean;
+    USE_CONFLUENCE_FILTER_1H: boolean;
+    USE_CONFLUENCE_FILTER_4H: boolean;
 
     // Future-proofing (UI only for now)
     USE_CORRELATION_FILTER: boolean;

@@ -166,6 +166,9 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_15m">Tendance 15m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_30m">Tendance 30m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
@@ -193,6 +196,9 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
@@ -202,7 +208,7 @@ const ScannerPage: React.FC = () => {
                         })
                     ) : (
                          <tr>
-                            <td colSpan={12} className="px-6 py-16 text-center text-gray-500">
+                            <td colSpan={15} className="px-6 py-16 text-center text-gray-500">
                                 <div className="flex flex-col items-center">
                                     <EmptyScannerIcon />
                                     <h3 className="mt-4 text-sm font-semibold text-gray-300">Aucune Paire Trouvée</h3>

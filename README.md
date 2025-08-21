@@ -11,7 +11,7 @@ BOTPY is a comprehensive web-based dashboard designed to monitor, control, and a
 -   **Real-time Market Scanner**: Automatically identifies high-potential trading pairs based on user-defined criteria like volume and volatility.
 -   **Advanced & Configurable Strategy**: Implements a multi-filter, trend-following strategy with a suite of professional-grade tools:
     -   **Core Indicators**: RSI, ADX, Volatility, Volume.
-    -   **Advanced Filters**: **Multi-Timeframe Confirmation**, a master **Market Regime Filter**, and **MACD Confirmation**.
+    -   **Advanced Filters**: A powerful **Full Multi-Timeframe Confluence** filter (1m, 15m, 30m, 1h, 4h), a master **Market Regime Filter**, and **MACD Confirmation**.
     -   **Intelligent Risk Management**: **ATR-based Stop Loss**, **Auto Break-even**, and **Partial Take Profit**.
     -   **ML-Enhanced Scoring**: An optional, built-in machine learning model that provides a confidence score (0-100) for potential trades, adding a powerful layer of predictive analysis.
 -   **Live Dashboard**: Offers an at-a-glance overview of key performance indicators (KPIs) such as balance, open positions, total Profit & Loss (P&L), and win rate.
@@ -48,7 +48,7 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
     -   `Symbol`, `Price` (with live green/red flashes), `Volume`, `Volatility`.
     -   `Score`: The final strategic score, displayed as a colored badge (`STRONG BUY`/`BUY` are **green**).
     -   `ML Prediction` & `ML Score`: The output of the machine learning model, showing its predicted trend and confidence level.
-    -   `Trend 1m` & `Trend 4h`: The short-term and long-term trends, visualized with icons and colors: `▲ UP` (**green**), `▼ DOWN` (**red**), `- NEUTRAL` (**gray**).
+    -   `Trend 1m`, `15m`, `30m`, `1h`, `4h`: The trend on each timeframe, visualized with icons and colors: `▲ UP` (**green**), `▼ DOWN` (**red**), `- NEUTRAL` (**gray**).
     -   `Market Regime`: The long-term market structure (`UPTREND`, `DOWNTREND`), providing critical context.
     -   `RSI`: Colored **yellow** if > 70 (overbought) or **purple** if < 30 (oversold).
     -   `ADX`: **Blue and bold** if > 25, indicating a strong trend.
@@ -90,7 +90,7 @@ This initial stage runs periodically to select a universe of relevant pairs to a
 1.  **Fetch Tickers**: Retrieves all USDT-based pairs directly from the Binance 24hr Ticker API.
 2.  **Volume Filter**: Discards any pair with a 24-hour trading volume below the `Min Volume (USD)` threshold.
 3.  **Exclusion Filter**: Removes any pairs manually listed in the `Exclude Pairs` setting.
-4.  **Initial Analysis**: For each remaining pair, it fetches historical data (up to 200 candles on the 4h timeframe) to establish a baseline for trend, volatility, and the overall market regime.
+4.  **Initial Analysis**: For each remaining pair, it fetches historical data (up to 200 candles) for the **4h, 1h, 30m, and 15m** timeframes to establish a baseline for trend and the overall market regime.
 
 ### Step 2: Real-time Scoring (The Decision Engine)
 
@@ -100,14 +100,13 @@ For each filtered pair, the bot connects via WebSocket and performs a continuous
 | :--- | :--- | :--- |
 | **HOLD** | **Default State** or Any Failed Check | This is the starting score. If any of the following checks fail, the score remains `HOLD`. |
 | ... | 1. **Market Regime Filter** | *(Master Filter)* If enabled, is the long-term **Market Regime `UPTREND`** (e.g., SMA50 > SMA200 on the 4h chart)? If not, all buy signals are discarded. The bot will not trade against the primary market structure. |
-| ... | 2. **Multi-Timeframe Confirmation** | If enabled, is the shorter-term **Trend 4h `UP`**? If not, the signal is discarded (`HOLD`). This aligns the trade with the more immediate long-term trend. |
-| ... | 3. **Short-Term Trend Check** | Is the **Trend 1m `UP`** (ADX > 25 and price > SMA20)? If not, `HOLD`. |
-| ... | 4. **Volatility Check** | Is the calculated **Volatility > `Min Volatility (%)`**? If not, `HOLD`. This avoids entering flat, directionless markets. |
-| ... | 5. **Volume Confirmation** | If enabled, is the volume of the last 1-minute candle **greater than its recent average**? If not, `HOLD`. This confirms market interest is backing the move. |
-| ... | 6. **MACD Confirmation** | If enabled, does the **1m MACD histogram have a positive value**? This confirms bullish momentum is present. If not, `HOLD`. |
-| ... | 7. **RSI Overbought Filter** | Is the **RSI between 50 and the overbought threshold (e.g., 70)**? If RSI is too high, the market is considered overheated and the signal is discarded (`HOLD`). |
-| ... | 8. **ML Model Filter (Optional)** | If enabled, does the **ML Model predict `UP` with a confidence score above the required threshold (e.g., 65)**? This provides an advanced, final layer of confirmation. |
-| **BUY** | All applicable checks passed AND **RSI > 50** | The pair is in a confirmed, volatile uptrend with positive momentum, and aligned with the long-term market direction. This is a valid signal. |
+| ... | 2. **Multi-Timeframe Confluence** | *(Powerful Filter)* This is a series of checks, one for each timeframe (4h, 1h, 30m, 15m, 1m). If the corresponding toggle is **enabled** in settings, the trend for that timeframe **must be `UP`**. If any required timeframe is not `UP`, the signal is discarded (`HOLD`). This is the core of the confluence strategy. |
+| ... | 3. **Volatility Check** | Is the calculated **Volatility > `Min Volatility (%)`**? If not, `HOLD`. This avoids entering flat, directionless markets. |
+| ... | 4. **Volume Confirmation** | If enabled, is the volume of the last 1-minute candle **greater than its recent average**? If not, `HOLD`. This confirms market interest is backing the move. |
+| ... | 5. **MACD Confirmation** | If enabled, does the **1m MACD histogram have a positive value**? This confirms bullish momentum is present. If not, `HOLD`. |
+| ... | 6. **RSI Overbought Filter** | Is the **RSI between 50 and the overbought threshold (e.g., 70)**? If RSI is too high, the market is considered overheated and the signal is discarded (`HOLD`). |
+| ... | 7. **ML Model Filter (Optional)** | If enabled, does the **ML Model predict `UP` with a confidence score above the required threshold (e.g., 65)**? This provides an advanced, final layer of confirmation. |
+| **BUY** | All applicable checks passed AND **RSI > 50** | The pair is in a confirmed, volatile uptrend with positive momentum, and aligned with all required timeframes. This is a valid signal. |
 | **STRONG BUY** | All applicable checks passed AND **50 < RSI < 70** | This is the "sweet spot". The momentum is strong but not yet in the "overbought" territory, suggesting the trend has room to run. This is the highest quality signal. |
 
 
@@ -151,6 +150,7 @@ Many of the initial "suggested improvements" have now been integrated as optiona
 *   **✅ [Implemented] Advanced Profit-Taking Strategy (Partial Take Profit)**
 *   **✅ [Implemented] Auto Break-even**
 *   **✅ [Implemented] ML Model Filter for enhanced signal confirmation**
+*   **✅ [Implemented] Full Multi-Timeframe Confluence Filter**
 *   **Next Steps**:
     *   **Short-Selling Strategy**: Develop a parallel strategy to take `SELL` positions when the Market Regime is `DOWNTREND`, allowing the bot to be profitable in both bull and bear markets.
     *   **Correlation Filter**: Implement logic to prevent opening simultaneous trades on highly correlated assets (e.g., BTC and ETH) to better diversify risk.
@@ -167,7 +167,7 @@ Many of the initial "suggested improvements" have now been integrated as optiona
 -   **Scanner de Marché en Temps Réel**: Identifie automatiquement les paires à fort potentiel.
 -   **Stratégie Avancée et Configurable**:
     -   **Indicateurs Clés**: RSI, ADX, Volatilité, Volume.
-    -   **Filtres Avancés**: **Confirmation Multi-Timeframe**, un **Filtre de Régime de Marché**, et **Confirmation MACD**.
+    -   **Filtres Avancés**: Un puissant filtre de **Confluence Multi-Timeframe** (1m, 15m, 30m, 1h, 4h), un **Filtre de Régime de Marché**, et **Confirmation MACD**.
     -   **Gestion des Risques Intelligente**: **Stop Loss basé sur l'ATR**, **Mise à Breakeven Automatique**, et **Prise de Profit Partielle**.
     -   **Scoring Amélioré par ML**: Un modèle de machine learning intégré (optionnel) qui fournit un score de confiance (0-100), ajoutant une couche d'analyse prédictive.
 -   **Tableau de Bord en Direct**: Vue d'ensemble des indicateurs clés (solde, positions, P&L, etc.).
@@ -183,7 +183,7 @@ Le bot utilise une stratégie de suivi de tendance multi-filtres conçue pour id
 1.  **Récupération des Tickers**: Obtient toutes les paires basées sur l'USDT depuis l'API de Binance.
 2.  **Filtre de Volume**: Écarte les paires dont le volume est inférieur au seuil `Min Volume (USD)`.
 3.  **Filtre d'Exclusion**: Retire les paires listées dans le paramètre `Exclude Pairs`.
-4.  **Analyse Initiale**: Pour chaque paire restante, récupère les données historiques (4h) pour établir la tendance de fond et le régime de marché.
+4.  **Analyse Initiale**: Pour chaque paire restante, récupère les données historiques (4h, 1h, 30m, 15m) pour établir les tendances de fond et le régime de marché.
 
 ### Étape 2 : Scoring en Temps Réel (Le Moteur de Décision)
 
@@ -193,13 +193,12 @@ Pour chaque paire filtrée, le bot analyse en continu chaque bougie de 1 minute.
 | :--- | :--- | :--- |
 | **HOLD** | **État par Défaut** ou Échec d'une Vérification | Si l'un des contrôles suivants échoue, le score reste `HOLD`. |
 | ... | 1. **Filtre de Régime de Marché** | *(Filtre Maître)* Si activé, le **Régime de Marché** à long terme est-il `UPTREND` (Tendance Haussière) ? Sinon, tous les signaux d'achat sont ignorés. |
-| ... | 2. **Confirmation Multi-Timeframe** | Si activé, la **Tendance 4h** est-elle `UP` (Haussière) ? Sinon, le signal est ignoré (`HOLD`). |
-| ... | 3. **Vérification de la Tendance à Court Terme** | La **Tendance 1m** est-elle `UP` ? Sinon, `HOLD`. |
-| ... | 4. **Vérification de la Volatilité** | La **Volatilité > `Min Volatility (%)`** ? Sinon, `HOLD`. |
-| ... | 5. **Confirmation par le Volume** | Si activé, le volume de la dernière bougie de 1 minute est-il **supérieur à sa moyenne récente** ? Sinon, `HOLD`. |
-| ... | 6. **Confirmation MACD** | Si activé, l'histogramme du **MACD 1m a-t-il une valeur positive** ? Sinon, `HOLD`. |
-| ... | 7. **Filtre de Surchat RSI** | Le **RSI est-il entre 50 et le seuil de surachat (ex: 70)** ? Si le RSI est trop élevé, le signal est ignoré (`HOLD`). |
-| ... | 8. **Filtre du Modèle ML (Optionnel)** | Si activé, le **Modèle ML prédit-il `UP` (HAUSSE) avec un score de confiance supérieur au seuil requis (ex: 65)** ? |
+| ... | 2. **Confluence Multi-Timeframe** | *(Filtre Puissant)* Une série de vérifications pour chaque unité de temps (4h, 1h, 30m, 15m, 1m). Si l'interrupteur correspondant est **activé**, la tendance pour cette unité de temps **doit être `UP`**. Si une seule tendance requise n'est pas `UP`, le signal est ignoré (`HOLD`). |
+| ... | 3. **Vérification de la Volatilité** | La **Volatilité > `Min Volatility (%)`** ? Sinon, `HOLD`. |
+| ... | 4. **Confirmation par le Volume** | Si activé, le volume de la dernière bougie de 1 minute est-il **supérieur à sa moyenne récente** ? Sinon, `HOLD`. |
+| ... | 5. **Confirmation MACD** | Si activé, l'histogramme du **MACD 1m a-t-il une valeur positive** ? Sinon, `HOLD`. |
+| ... | 6. **Filtre de Surchat RSI** | Le **RSI est-il entre 50 et le seuil de surachat (ex: 70)** ? Si le RSI est trop élevé, le signal est ignoré (`HOLD`). |
+| ... | 7. **Filtre du Modèle ML (Optionnel)** | Si activé, le **Modèle ML prédit-il `UP` (HAUSSE) avec un score de confiance supérieur au seuil requis (ex: 65)** ? |
 | **BUY** | Toutes les vérifications applicables sont passées ET **RSI > 50** | Le signal est valide. |
 | **STRONG BUY** | Toutes les vérifications applicables sont passées ET **50 < RSI < 70** | Le "sweet spot". Le momentum est fort mais pas encore en "surchat". C'est le signal de la plus haute qualité. |
 

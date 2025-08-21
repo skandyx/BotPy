@@ -22,7 +22,6 @@ const tooltips: Record<string, string> = {
     COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
     COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
-    USE_MULTI_TIMEFRAME_CONFIRMATION: "Un filtre puissant. Si activé, un signal d'achat à court terme (1 minute) n'est valide que si la tendance à long terme (4 heures) est également en HAUSSE.",
     USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si la structure du marché à long terme (basée sur les MA 50/200 sur le graphique 4h) est dans une TENDANCE HAUSSIÈRE confirmée.",
     REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
@@ -42,6 +41,11 @@ const tooltips: Record<string, string> = {
     USE_DYNAMIC_POSITION_SIZING: "Allouer une taille de position plus importante pour les signaux 'STRONG BUY' de la plus haute qualité par rapport aux signaux 'BUY' réguliers.",
     STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
     USE_ML_MODEL_FILTER: "Si activé, le bot exigera une confirmation du modèle d'Apprentissage Automatique interne (la prédiction ML doit être 'HAUSSE' avec un score élevé) avant d'ouvrir un trade.",
+    USE_CONFLUENCE_FILTER_4H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 4 heures est également en HAUSSE.",
+    USE_CONFLUENCE_FILTER_1H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 heure est également en HAUSSE.",
+    USE_CONFLUENCE_FILTER_30M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 30 minutes est également en HAUSSE.",
+    USE_CONFLUENCE_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
+    USE_CONFLUENCE_FILTER_1M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 minute (le signal d'entrée) est également en HAUSSE.",
     USE_CORRELATION_FILTER: "(Fonctionnalité future) Empêcher l'ouverture de trades sur plusieurs paires fortement corrélées en même temps pour diversifier le risque.",
     USE_NEWS_FILTER: "(Fonctionnalité future) Mettre automatiquement en pause le bot lors d'événements d'actualité économique majeurs pour éviter une volatilité extrême."
 };
@@ -281,9 +285,8 @@ const SettingsPage: React.FC = () => {
                         </div>
                     </div>
                     <hr className="border-[#2b2f38] my-6" />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {renderToggle('USE_VOLUME_CONFIRMATION', "Conf. par le Volume")}
-                        {renderToggle('USE_MULTI_TIMEFRAME_CONFIRMATION', "Conf. Multi-Timeframe")}
                         {renderToggle('USE_MARKET_REGIME_FILTER', "Filtre de Régime de Marché")}
                         {renderToggle('REQUIRE_STRONG_BUY', "Exiger 'Strong Buy' Uniquement")}
                     </div>
@@ -314,14 +317,26 @@ const SettingsPage: React.FC = () => {
                         {renderToggle('USE_MACD_CONFIRMATION', "Utiliser la Confirmation MACD")}
                     </div>
                      {/* --- Expert --- */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Expert</div>
-                        {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
-                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
-                        <div></div>
-                        {renderToggle('USE_ML_MODEL_FILTER', "Utiliser le filtre du modèle ML")}
-                        {renderToggle('USE_CORRELATION_FILTER', "Utiliser le filtre de Corrélation")}
-                        {renderToggle('USE_NEWS_FILTER', "Utiliser le filtre de Nouvelles")}
+                    <div className="grid grid-cols-1 gap-6 items-start p-4 border border-gray-700 rounded-md">
+                        <div className="col-span-1 text-base font-semibold text-[#f0b90b]">Expert</div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
+                            {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
+                             <div></div>
+                            {renderToggle('USE_ML_MODEL_FILTER', "Utiliser le filtre du modèle ML")}
+                            {renderToggle('USE_CORRELATION_FILTER', "Utiliser le filtre de Corrélation")}
+                            {renderToggle('USE_NEWS_FILTER', "Utiliser le filtre de Nouvelles")}
+                        </div>
+                         <div className="pt-4 border-t border-gray-700 mt-4">
+                            <label className="text-base font-medium text-gray-300">Filtre de Confluence Multi-Temporelle</label>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6 mt-4">
+                                {renderToggle('USE_CONFLUENCE_FILTER_1M', "Tendance 1m")}
+                                {renderToggle('USE_CONFLUENCE_FILTER_15M', "Tendance 15m")}
+                                {renderToggle('USE_CONFLUENCE_FILTER_30M', "Tendance 30m")}
+                                {renderToggle('USE_CONFLUENCE_FILTER_1H', "Tendance 1h")}
+                                {renderToggle('USE_CONFLUENCE_FILTER_4H', "Tendance 4h")}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
