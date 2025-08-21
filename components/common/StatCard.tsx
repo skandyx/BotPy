@@ -17,7 +17,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, children, v
             <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">{title}</p>
             {children}
         </div>
-        <p className={`text-3xl font-bold text-gray-100 mt-2 ${valueClassName || ''}`}>
+        <p className={`text-2xl md:text-3xl font-bold text-gray-100 mt-2 ${valueClassName || ''}`}>
           {value}
         </p>
       </div>

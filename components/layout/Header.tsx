@@ -4,10 +4,11 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBotState } from '../../contexts/BotStateContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useSidebar } from '../../contexts/SidebarContext';
 import ToggleSwitch from '../common/ToggleSwitch';
 import Modal from '../common/Modal';
 import { TradingMode, WebSocketStatus } from '../../types';
-import { LogoutIcon, ClockIcon } from '../icons/Icons';
+import { LogoutIcon, ClockIcon, MenuIcon } from '../icons/Icons';
 
 const getTitleFromPath = (path: string): string => {
     const name = path.split('/').pop() || 'dashboard';
@@ -26,6 +27,7 @@ const Header: React.FC = () => {
   const { connectionStatus } = useWebSocket();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { setMobileOpen } = useSidebar();
 
 
   useEffect(() => {
@@ -96,10 +98,19 @@ const Header: React.FC = () => {
   
   return (
     <>
-      <header className="bg-[#0c0e12]/80 backdrop-blur-sm sticky top-0 z-40">
+      <header className="bg-[#0c0e12]/80 backdrop-blur-sm sticky top-0 z-30 md:z-40">
         <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8 border-b border-[#1a1d26]">
-            <h1 className="text-xl font-bold text-white">{pageTitle}</h1>
-            <div className="flex items-center space-x-4 md:space-x-6">
+            <div className="flex items-center">
+                <button
+                    onClick={() => setMobileOpen(true)}
+                    className="md:hidden mr-4 text-gray-300 hover:text-white"
+                    aria-label="Open sidebar"
+                >
+                    <MenuIcon />
+                </button>
+                <h1 className="text-xl font-bold text-white">{pageTitle}</h1>
+            </div>
+            <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-6">
                 <div className="flex items-center space-x-3">
                     <ToggleSwitch
                         checked={isBotRunning}
@@ -115,7 +126,7 @@ const Header: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="hidden sm:flex items-center space-x-2" title="Time until next 1-min candle analysis">
+                <div className="hidden md:flex items-center space-x-2" title="Time until next 1-min candle analysis">
                     <ClockIcon />
                     <span className="text-xs text-gray-400 font-mono w-7">
                         {syncTimer}s
@@ -128,14 +139,14 @@ const Header: React.FC = () => {
                 </div>
 
                 <div ref={dropdownRef} className="relative">
-                    <button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="flex items-center justify-center px-3 py-1.5 border border-[#3e4451] rounded-md text-sm font-medium text-white hover:bg-[#14181f] transition-colors">
+                    <button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="flex items-center justify-center px-2 sm:px-3 py-1.5 border border-[#3e4451] rounded-md text-sm font-medium text-white hover:bg-[#14181f] transition-colors">
                         {getModeLabel(tradingMode)}
-                        <svg className="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <svg className="hidden sm:block -mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
                     </button>
                     {isDropdownOpen && (
-                         <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-[#14181f] ring-1 ring-black ring-opacity-5 focus:outline-none">
+                         <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-[#14181f] ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
                              <div className="py-1">
                                 <a href="#" onClick={() => handleModeChange(TradingMode.VIRTUAL)} className={`block px-4 py-2 text-sm ${tradingMode === TradingMode.VIRTUAL ? 'text-[#f0b90b]' : 'text-gray-300'} hover:bg-[#2b2f38]`}>Virtual</a>
                                 <a href="#" onClick={() => handleModeChange(TradingMode.REAL_PAPER)} className={`block px-4 py-2 text-sm ${tradingMode === TradingMode.REAL_PAPER ? 'text-[#f0b90b]' : 'text-gray-300'} hover:bg-[#2b2f38]`}>Real (Paper)</a>

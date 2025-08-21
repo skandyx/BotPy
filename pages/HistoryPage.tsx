@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { Trade, OrderSide, TradingMode } from '../types';
@@ -45,7 +46,7 @@ const SortableHeader: React.FC<{
     return (
         <th 
             scope="col" 
-            className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f]/50 transition-colors"
+            className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f]/50 transition-colors"
             onClick={() => requestSort(sortKey)}
         >
             <div className="flex items-center">
@@ -213,12 +214,12 @@ const HistoryPage: React.FC = () => {
                 <thead className="bg-[#14181f] sticky top-0">
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbol</SortableHeader>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Side</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mode</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Side</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mode</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Entry Time</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Exit Time</SortableHeader>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Entry Price</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Exit Price</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Entry Price</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Exit Price</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl">PnL</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl_pct">PnL %</SortableHeader>
                     </tr>
@@ -226,19 +227,19 @@ const HistoryPage: React.FC = () => {
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {filteredAndSortedTrades.map(trade => (
                         <tr key={trade.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
-                            <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
+                            <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
                                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${(trade.mode === TradingMode.REAL_LIVE || trade.mode === TradingMode.REAL_PAPER) ? 'bg-red-900 text-red-300' : 'bg-yellow-600 text-yellow-950'}`}>
                                     {trade.mode}
                                 </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{new Date(trade.entry_time).toLocaleString(undefined, dateTimeFormatOptions)}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{trade.exit_time ? new Date(trade.exit_time).toLocaleString(undefined, dateTimeFormatOptions) : 'N/A'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.entry_price)}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.exit_price)}</td>
-                            <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl)}`}>{trade.pnl?.toFixed(2) || 'N/A'}</td>
-                             <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl_pct)}`}>{trade.pnl_pct?.toFixed(2) || 'N/A'}%</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{new Date(trade.entry_time).toLocaleString(undefined, dateTimeFormatOptions)}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{trade.exit_time ? new Date(trade.exit_time).toLocaleString(undefined, dateTimeFormatOptions) : 'N/A'}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.entry_price)}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.exit_price)}</td>
+                            <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl)}`}>{trade.pnl?.toFixed(2) || 'N/A'}</td>
+                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl_pct)}`}>{trade.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                         </tr>
                     ))}
                      {filteredAndSortedTrades.length === 0 && (

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
@@ -211,17 +212,17 @@ const SettingsPage: React.FC = () => {
     return (
         <>
         <div className="space-y-6">
-            <div className="flex justify-between items-start">
-                <h2 className="text-3xl font-bold text-white">Paramètres</h2>
-                <div className="flex items-center space-x-4 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-2xl sm:text-3xl font-bold text-white">Paramètres</h2>
+                <div className="flex items-center space-x-4 flex-shrink-0 w-full sm:w-auto">
                     {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.type === 'success' ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage.text}</p>}
-                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
+                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
                         {isSaving ? "Sauvegarde..." : "Sauvegarder les Paramètres"}
                     </button>
                 </div>
             </div>
             
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-8">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-8">
                 <div>
                     <h3 className="text-lg font-semibold text-white mb-4">Paramètres du Bot</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -282,7 +283,7 @@ const SettingsPage: React.FC = () => {
                 </div>
             </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
                 <h3 className="text-lg font-semibold text-white">Stratégie Avancée & Gestion des Risques</h3>
                  <div className="space-y-6">
                     {/* --- Defense --- */}
@@ -330,7 +331,7 @@ const SettingsPage: React.FC = () => {
                 </div>
             </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
                 <h3 className="text-lg font-semibold text-white">Identifiants API</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                     {renderField('BINANCE_API_KEY', "Clé API Binance", 'text')}
@@ -343,17 +344,17 @@ const SettingsPage: React.FC = () => {
                 </div>
             </div>
             
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-6 space-y-6">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
                  <h3 className="text-lg font-semibold text-white">Sécurité & Gestion des Données</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                     {renderField('newPassword', "Nouveau Mot de Passe", 'password')}
                     {renderField('confirmPassword', "Confirmer le Nouveau Mot de Passe", 'password')}
                  </div>
-                 <div className="flex justify-between items-center pt-4 border-t border-[#2b2f38] mt-6">
-                     <button onClick={() => setIsClearModalOpen(true)} disabled={isSaving} className="inline-flex justify-center rounded-md border border-red-800 bg-transparent py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                 <div className="flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-[#2b2f38] mt-6 gap-4">
+                     <button onClick={() => setIsClearModalOpen(true)} disabled={isSaving} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-red-800 bg-transparent py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         Effacer Toutes les Données
                     </button>
-                    <button onClick={handleUpdatePassword} disabled={isAnyActionInProgress} className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
+                    <button onClick={handleUpdatePassword} disabled={isAnyActionInProgress} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
                         {isSaving ? "Mise à jour..." : "Mettre à jour le Mot de Passe"}
                     </button>
                  </div>

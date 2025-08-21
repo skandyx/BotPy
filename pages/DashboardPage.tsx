@@ -37,9 +37,9 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                 <thead className="bg-[#14181f]">
                     <tr>
                         {['Symbol', 'Side', 'Entry Price', 'Current Price', 'Quantity', 'Stop Loss', 'Take Profit', 'PnL', 'PnL %'].map(header => (
-                            <th key={header} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
+                            <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
-                        <th scope="col" className="relative px-6 py-3">
+                        <th scope="col" className="relative px-3 lg:px-6 py-3">
                            <span className="sr-only">Close</span>
                         </th>
                     </tr>
@@ -49,16 +49,16 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                         const priceClass = pos.priceDirection === 'up' ? 'text-green-400' : (pos.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                         return (
                             <tr key={pos.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pos.symbol}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(pos.side)}`}>{pos.side}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.entry_price)}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pos.current_price || pos.entry_price)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pos.quantity.toFixed(4)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.stop_loss)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>{pos.pnl?.toFixed(2) || 'N/A'}</td>
-                                <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pos.symbol}</td>
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(pos.side)}`}>{pos.side}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.entry_price)}</td>
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pos.current_price || pos.entry_price)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pos.quantity.toFixed(4)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.stop_loss)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>{pos.pnl?.toFixed(2) || 'N/A'}</td>
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <button
                                         onClick={() => onManualClose(pos)}
                                         className="text-red-500 hover:text-red-700 transition-colors"
@@ -223,7 +223,7 @@ const DashboardPage: React.FC = () => {
                 <StatCard title="Monitored Pairs" value={status.monitored_pairs} subtitle={`Volume > $${(settings.MIN_VOLUME_USD / 1000000).toFixed(0)}M`} />
             </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-5 shadow-lg">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-4">Performance</h3>
                     <ResponsiveContainer width="100%" height={250}>
                     <AreaChart data={performanceChartData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
@@ -242,12 +242,12 @@ const DashboardPage: React.FC = () => {
                 </ResponsiveContainer>
             </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-5 shadow-lg">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-4">Active Positions</h3>
                 <ActivePositionsTable positions={positions} onManualClose={openCloseModal} />
             </div>
             
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-5 shadow-lg">
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                  <h3 className="text-lg font-semibold text-white mb-4">Top Monitored Pairs</h3>
                  <div className="flex flex-wrap gap-2">
                      {status.top_pairs.map(pair => (

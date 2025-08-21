@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { ScannedPair } from '../types';
 import Spinner from '../components/common/Spinner';
@@ -33,7 +34,7 @@ const SortableHeader: React.FC<{
     return (
         <th 
             scope="col" 
-            className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f] transition-colors"
+            className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f] transition-colors"
             onClick={() => requestSort(sortKey)}
         >
             <div className="flex items-center">
@@ -152,11 +153,11 @@ const ScannerPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white">Scanner de Marché</h2>
+      <h2 className="text-2xl sm:text-3xl font-bold text-white">Scanner de Marché</h2>
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
-                <thead className="bg-[#14181f] sticky top-0">
+                <thead className="bg-[#14181f] sticky top-0 z-10">
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
@@ -184,25 +185,25 @@ const ScannerPage: React.FC = () => {
                             
                             return (
                                 <tr key={pair.symbol}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
-                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
                                         <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
                                             {pair.score}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
-                                    {settings.USE_CONFLUENCE_FILTER_1M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_15M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_30M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_1H && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_4H && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>}
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
-                                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
-                                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
+                                    {settings.USE_CONFLUENCE_FILTER_1M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_15M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_30M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_1H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_4H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>}
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
                                 </tr>
                             )
                         })

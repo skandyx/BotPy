@@ -67,11 +67,17 @@ export const QuestionMarkCircleIcon: React.FC<{ className?: string }> = ({ class
 );
 
 export const SidebarToggleIcon: React.FC<{ isCollapsed: boolean }> = ({ isCollapsed }) => (
-    <svg className="h-5 w-5 text-gray-300 group-hover:text-[#f0b90b] transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+    <svg className="h-5 w-5 text-gray-300 group-hover:text-[#f0b90b] transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
         {isCollapsed ? (
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
         ) : (
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
         )}
+    </svg>
+);
+
+export const MenuIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className || "h-6 w-6"} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
     </svg>
 );
