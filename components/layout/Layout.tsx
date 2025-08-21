@@ -13,7 +13,7 @@ import { useAppContext } from '../../contexts/AppContext';
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setConnectionStatus } = useWebSocket();
   const { isAuthenticated } = useAuth();
-  const { settingsActivityCounter, refreshData } = useAppContext(); // Listen for settings/trade changes
+  const { settingsActivityCounter, refreshData, setSettings } = useAppContext(); // Listen for settings/trade changes
 
   useEffect(() => {
     // This effect handles the application's main data flow and WebSocket connection.
@@ -32,11 +32,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         
         const initializeAndFetchData = async () => {
             try {
-                // 1. Fetch the latest settings and update the scanner store.
-                // This is crucial for real-time indicator calculations on the backend.
-                logService.log('INFO', 'Fetching settings and initializing scanner store...');
-                const settings = await api.fetchSettings();
-                scannerStore.updateSettings(settings); // Frontend store keeps a reference
+                // 1. Fetch the latest settings and update both context and store
+                logService.log('INFO', 'Fetching settings and initializing...');
+                const settingsData = await api.fetchSettings();
+                setSettings(settingsData);
+                scannerStore.updateSettings(settingsData);
                 scannerStore.initialize();
 
                 // 2. Perform an initial fetch of scanner data to populate the view.
@@ -65,7 +65,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       websocketService.onStatusChange(null);
       websocketService.onDataRefresh(null);
     };
-  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData]);
+  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings]);
 
   return (
     <div className="flex h-screen bg-[#0c0e12] overflow-hidden">

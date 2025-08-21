@@ -81,7 +81,7 @@ const ConsolePage: React.FC = () => {
           <div 
               ref={logContainerRef}
               className="flex-grow p-4 overflow-y-auto font-spacemono text-sm"
-              style={{ minHeight: '400px' }}
+              style={{ maxHeight: 'calc(100vh - 18rem)' }}
           >
               {filteredLogs.slice().reverse().map((log, index) => (
                   <div key={index} className="flex">

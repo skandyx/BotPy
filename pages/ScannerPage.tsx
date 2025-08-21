@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ScannedPair } from '../types';
 import Spinner from '../components/common/Spinner';
 import { scannerStore } from '../services/scannerStore';
+import { useAppContext } from '../contexts/AppContext';
 
 type SortableKeys = keyof ScannedPair;
 type SortDirection = 'asc' | 'desc';
@@ -53,30 +54,20 @@ const EmptyScannerIcon = () => (
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
   const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'ml_score', direction: 'desc' });
-  const [isInitialLoading, setIsInitialLoading] = useState(() => scannerStore.getScannedPairs().length === 0);
+  const { settings } = useAppContext();
 
   useEffect(() => {
     const handleStoreUpdate = (updatedPairs: ScannedPair[]) => {
       setPairs(updatedPairs);
-      if (isInitialLoading && updatedPairs.length > 0) {
-        setIsInitialLoading(false);
-      }
     };
 
-    // Subscribe to the single source of truth: the scannerStore.
     const unsubscribe = scannerStore.subscribe(handleStoreUpdate);
-
-    // Handle the edge case where data is already loaded in the store when the component mounts.
-    const initialPairs = scannerStore.getScannedPairs();
-    if (isInitialLoading && initialPairs.length > 0) {
-      setPairs(initialPairs);
-      setIsInitialLoading(false);
-    }
+    setPairs(scannerStore.getScannedPairs());
 
     return () => {
       unsubscribe();
     };
-  }, [isInitialLoading]);
+  }, []);
 
 
   const requestSort = (key: SortableKeys) => {
@@ -131,9 +122,9 @@ const ScannerPage: React.FC = () => {
   const getMlPredictionJsx = (prediction: ScannedPair['ml_prediction']) => {
       if (!prediction) return <span className="text-gray-500">-</span>;
       switch(prediction) {
-          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ HAUSSE</span>;
-          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ BAISSE</span>;
-          default: return <span className="text-gray-400">- NEUTRE</span>;
+          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ UP</span>;
+          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ DOWN</span>;
+          default: return <span className="text-gray-400">- NEUTRAL</span>;
       }
   }
 
@@ -146,17 +137,26 @@ const ScannerPage: React.FC = () => {
     }
   }
 
-  if (isInitialLoading) {
+  if (!settings) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
+
+  const visibleTimeframeCount = [
+    settings.USE_CONFLUENCE_FILTER_1M,
+    settings.USE_CONFLUENCE_FILTER_15M,
+    settings.USE_CONFLUENCE_FILTER_30M,
+    settings.USE_CONFLUENCE_FILTER_1H,
+    settings.USE_CONFLUENCE_FILTER_4H,
+  ].filter(Boolean).length;
+  const totalColumnCount = 10 + visibleTimeframeCount;
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-white">Scanner de Marché</h2>
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
-                <thead className="bg-[#14181f]">
+                <thead className="bg-[#14181f] sticky top-0">
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
@@ -165,11 +165,11 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">Score ML</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_15m">Tendance 15m</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_30m">Tendance 30m</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>
+                        {settings.USE_CONFLUENCE_FILTER_1M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>}
+                        {settings.USE_CONFLUENCE_FILTER_15M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_15m">Tendance 15m</SortableHeader>}
+                        {settings.USE_CONFLUENCE_FILTER_30M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_30m">Tendance 30m</SortableHeader>}
+                        {settings.USE_CONFLUENCE_FILTER_1H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>}
+                        {settings.USE_CONFLUENCE_FILTER_4H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>}
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
@@ -195,11 +195,11 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>
+                                    {settings.USE_CONFLUENCE_FILTER_1M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_15M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_30M && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_1H && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>}
+                                    {settings.USE_CONFLUENCE_FILTER_4H && <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>}
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
                                     <td className={`px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
@@ -208,7 +208,7 @@ const ScannerPage: React.FC = () => {
                         })
                     ) : (
                          <tr>
-                            <td colSpan={15} className="px-6 py-16 text-center text-gray-500">
+                            <td colSpan={totalColumnCount} className="px-6 py-16 text-center text-gray-500">
                                 <div className="flex flex-col items-center">
                                     <EmptyScannerIcon />
                                     <h3 className="mt-4 text-sm font-semibold text-gray-300">Aucune Paire Trouvée</h3>

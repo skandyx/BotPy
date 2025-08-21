@@ -2,12 +2,15 @@ import React, { createContext, useState, useContext, ReactNode, useCallback } fr
 import { api } from '../services/mockApi';
 import { positionService } from '../services/positionService';
 import { logService } from '../services/logService';
+import { BotSettings } from '../types';
 
 interface AppContextType {
   tradeActivityCounter: number;
   refreshData: () => void;
   settingsActivityCounter: number;
   incrementSettingsActivity: () => void;
+  settings: BotSettings | null;
+  setSettings: React.Dispatch<React.SetStateAction<BotSettings | null>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -15,6 +18,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [tradeActivityCounter, setTradeActivityCounter] = useState(0);
   const [settingsActivityCounter, setSettingsActivityCounter] = useState(0);
+  const [settings, setSettings] = useState<BotSettings | null>(null);
 
   const refreshData = useCallback(async () => {
     logService.log('INFO', 'WebSocket triggered position refresh. Fetching fresh data...');
@@ -32,7 +36,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   return (
-    <AppContext.Provider value={{ tradeActivityCounter, refreshData, settingsActivityCounter, incrementSettingsActivity }}>
+    <AppContext.Provider value={{ tradeActivityCounter, refreshData, settingsActivityCounter, incrementSettingsActivity, settings, setSettings }}>
       {children}
     </AppContext.Provider>
   );

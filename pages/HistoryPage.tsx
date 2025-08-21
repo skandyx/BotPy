@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { Trade, OrderSide, TradingMode } from '../types';
@@ -209,9 +208,9 @@ const HistoryPage: React.FC = () => {
                 <span className="ml-2">Export CSV</span>
             </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 24rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
-                <thead className="bg-[#14181f]">
+                <thead className="bg-[#14181f] sticky top-0">
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbol</SortableHeader>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Side</th>

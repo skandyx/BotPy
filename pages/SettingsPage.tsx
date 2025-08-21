@@ -53,8 +53,8 @@ const tooltips: Record<string, string> = {
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
 
 const SettingsPage: React.FC = () => {
-    const [settings, setSettings] = useState<BotSettings | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const { settings: contextSettings, setSettings: setContextSettings, incrementSettingsActivity, refreshData } = useAppContext();
+    const [settings, setSettings] = useState<BotSettings | null>(contextSettings);
     const [isSaving, setIsSaving] = useState(false);
     const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
     const [isTestingBinance, setIsTestingBinance] = useState(false);
@@ -62,24 +62,12 @@ const SettingsPage: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isClearModalOpen, setIsClearModalOpen] = useState(false);
-    const { incrementSettingsActivity, refreshData } = useAppContext();
-
-    const loadSettings = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const data = await api.fetchSettings();
-            setSettings(data);
-        } catch (error) {
-            console.error("Failed to load settings", error);
-            showMessage("Erreur : Impossible de charger les paramètres depuis le serveur.", 'error');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
 
     useEffect(() => {
-        loadSettings();
-    }, [loadSettings]);
+        if (contextSettings) {
+            setSettings(contextSettings);
+        }
+    }, [contextSettings]);
 
     const showMessage = (text: string, type: 'success' | 'error' = 'success', duration: number = 4000) => {
         setSaveMessage({ text, type });
@@ -97,6 +85,7 @@ const SettingsPage: React.FC = () => {
         setIsSaving(true);
         try {
             await api.updateSettings(settings);
+            setContextSettings(settings);
             incrementSettingsActivity();
             showMessage("Paramètres sauvegardés avec succès !");
         } catch (error: any) {
@@ -169,7 +158,7 @@ const SettingsPage: React.FC = () => {
             await api.clearAllTradeData();
             showMessage("Toutes les données de trading ont été effacées.");
             refreshData(); 
-            loadSettings();
+            // The settings will auto-reload via the layout effect triggered by refreshData/incrementSettings
         } catch (error: any) {
             showMessage(`Échec de l'effacement des données : ${error.message}`, 'error');
         } finally {
@@ -177,7 +166,7 @@ const SettingsPage: React.FC = () => {
         }
     };
     
-    if (isLoading || !settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
+    if (!settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
     
     const isAnyActionInProgress = isSaving || isTestingCoinGecko || isTestingBinance;
 
