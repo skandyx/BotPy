@@ -601,13 +601,16 @@ const tradingEngine = {
         for (const position of [...botState.activePositions]) {
             const currentPrice = priceFeeder.latestPrices.get(position.symbol);
             if (!currentPrice) continue;
-
-            const pnl = (currentPrice - position.entry_price) * position.quantity;
+            
+            // --- CRITICAL BUG FIX: Correct real-time PnL calculation for partial TPs ---
+            const pnlOnRemaining = (currentPrice - position.entry_price) * position.quantity;
+            const totalPnl = (position.realized_pnl || 0) + pnlOnRemaining;
             const entryValue = position.entry_price * (position.initial_quantity || position.quantity);
-            const pnl_pct = entryValue !== 0 ? (pnl / entryValue) * 100 : 0;
+            const pnl_pct = entryValue !== 0 ? (totalPnl / entryValue) * 100 : 0;
+            // --- END BUG FIX ---
             
             position.current_price = currentPrice;
-            position.pnl = pnl;
+            position.pnl = totalPnl;
             position.pnl_pct = pnl_pct;
 
             if (currentPrice > position.highest_price_since_entry) {
@@ -627,7 +630,7 @@ const tradingEngine = {
             // Auto Break-even
             if (botState.settings.USE_AUTO_BREAKEVEN && !position.is_at_breakeven) {
                 const requiredPnl = position.initial_risk_usd * botState.settings.BREAKEVEN_TRIGGER_R;
-                if (pnl >= requiredPnl) {
+                if (totalPnl >= requiredPnl) {
                     position.stop_loss = position.entry_price;
                     position.is_at_breakeven = true;
                     positionsWereUpdated = true;

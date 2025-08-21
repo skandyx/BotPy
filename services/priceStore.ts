@@ -19,9 +19,11 @@ class PriceStore {
 
     public updatePrice(update: PriceUpdate): void {
         this.prices.set(update.symbol, update);
-        // Notify the scanner store to merge the real-time price
-        scannerStore.handlePriceUpdate(update);
-        // Notify direct subscribers (like positionService)
+        // The scanner store is updated via the main 'SCANNER_UPDATE' websocket message.
+        // Calling it here is redundant and inefficient.
+        // scannerStore.handlePriceUpdate(update);
+        
+        // Notify direct subscribers (like positionService for real-time PnL)
         this.subscribers.forEach(callback => callback(update));
     }
 

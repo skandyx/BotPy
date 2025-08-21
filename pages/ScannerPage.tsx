@@ -131,9 +131,9 @@ const ScannerPage: React.FC = () => {
   const getMarketRegimeJsx = (regime: ScannedPair['marketRegime']) => {
     if (!regime) return <span className="text-gray-500">-</span>;
     switch(regime) {
-        case 'UPTREND': return <span className="text-sky-400 font-bold">HAUSSIER</span>;
-        case 'DOWNTREND': return <span className="text-orange-400">BAISSIER</span>;
-        default: return <span className="text-gray-500">NEUTRE</span>;
+        case 'UPTREND': return <span className="text-sky-400 font-bold">UPTREND</span>;
+        case 'DOWNTREND': return <span className="text-orange-400">DOWNTREND</span>;
+        default: return <span className="text-gray-500">NEUTRAL</span>;
     }
   }
 
