@@ -291,6 +291,7 @@ class RealtimeAnalyzer {
     }
 
     async handleKline(klineMsg, interval) {
+        this.log('BINANCE_WS', `[${interval}] Bougie clôturée reçue pour ${klineMsg.s}. Traitement...`);
         if (!this.settings || Object.keys(this.settings).length === 0) return;
 
         const symbol = klineMsg.s;
