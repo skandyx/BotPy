@@ -1,31 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { logService } from '../services/logService';
-import { LogEntry } from '../types';
+import { LogEntry, LOG_LEVELS, LogTab } from '../types';
 
-const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'COINGECKO', 'BINANCE_API', 'BINANCE_WS'];
-type Tab = 'ALL' | LogEntry['level'];
-const TABS: Readonly<Tab[]> = ['ALL', ...LOG_LEVELS];
+const TABS: Readonly<LogTab[]> = ['ALL', ...LOG_LEVELS];
 
 const ConsolePage: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>('ALL');
+  const [activeTab, setActiveTab] = useState<LogTab>('ALL');
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // Effect to reload logs from the service when the active tab changes.
+  useEffect(() => {
+    setLogs(logService.getLogs(activeTab));
+  }, [activeTab]);
+
+  // Effect to handle live log updates. It re-subscribes when the active tab
+  // changes to ensure the closure captures the correct `activeTab` value.
   useEffect(() => {
     const handleNewLog = (newLog: LogEntry) => {
-      setLogs((prevLogs) => [...prevLogs.slice(-499), newLog]); // Keep logs capped
+      if (activeTab === 'ALL' || activeTab === newLog.level) {
+        setLogs(prevLogs => [...prevLogs.slice(-499), newLog]);
+      }
     };
-    
-    setLogs(logService.getInitialLogs());
+
     logService.subscribe(handleNewLog);
 
     return () => {
-        logService.unsubscribe(handleNewLog);
+      logService.unsubscribe(handleNewLog);
     };
-  }, []);
+  }, [activeTab]);
 
+  // Effect to scroll to the top to show the latest log first
   useEffect(() => {
-    // Scroll to the top to show the latest log first
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = 0;
     }
@@ -47,7 +53,9 @@ const ConsolePage: React.FC = () => {
     }
   };
 
-  const filteredLogs = logs.filter(log => activeTab === 'ALL' || log.level === activeTab);
+  // The filtering is now implicitly handled by the state `logs` which is
+  // loaded based on the active tab.
+  const displayedLogs = logs;
 
   const timestampFormatOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -83,7 +91,7 @@ const ConsolePage: React.FC = () => {
               className="flex-grow p-4 overflow-y-auto font-spacemono text-sm"
               style={{ maxHeight: 'calc(100vh - 18rem)' }}
           >
-              {filteredLogs.slice().reverse().map((log, index) => (
+              {displayedLogs.slice().reverse().map((log, index) => (
                   <div key={index} className="flex">
                       <span className="text-gray-500 mr-4 whitespace-nowrap">
                         {new Date(log.timestamp).toLocaleString(undefined, timestampFormatOptions)}

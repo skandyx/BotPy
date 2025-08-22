@@ -1,13 +1,18 @@
-import { LogEntry } from '../types';
+import { LogEntry, LOG_LEVELS, LogTab } from '../types';
 
 type LogSubscriber = (log: LogEntry) => void;
 
 class LogService {
-    private logs: LogEntry[] = [];
+    private allLogs: LogEntry[] = [];
+    private logsByLevel: Map<LogEntry['level'], LogEntry[]> = new Map();
     private subscribers: LogSubscriber[] = [];
+    private readonly MAX_LOGS = 500;
 
     constructor() {
-        this.log('INFO', 'Log service initialized.');
+        LOG_LEVELS.forEach(level => {
+            this.logsByLevel.set(level, []);
+        });
+        this.log('INFO', 'Log service initialized with multi-buffer support.');
     }
 
     public log(level: LogEntry['level'], message: string) {
@@ -16,10 +21,22 @@ class LogService {
             level,
             message,
         };
-        this.logs.push(newLog);
-        if (this.logs.length > 500) {
-            this.logs.shift();
+
+        // Add to allLogs (chronological) buffer
+        this.allLogs.push(newLog);
+        if (this.allLogs.length > this.MAX_LOGS) {
+            this.allLogs.shift();
         }
+
+        // Add to specific level buffer
+        const levelBuffer = this.logsByLevel.get(level);
+        if (levelBuffer) {
+            levelBuffer.push(newLog);
+            if (levelBuffer.length > this.MAX_LOGS) {
+                levelBuffer.shift();
+            }
+        }
+        
         this.subscribers.forEach(cb => cb(newLog));
     }
 
@@ -33,8 +50,12 @@ class LogService {
         this.subscribers = this.subscribers.filter(cb => cb !== callback);
     }
 
-    public getInitialLogs(): LogEntry[] {
-        return [...this.logs];
+    public getLogs(tab: LogTab = 'ALL'): LogEntry[] {
+        if (tab === 'ALL') {
+            return [...this.allLogs];
+        }
+        const levelBuffer = this.logsByLevel.get(tab as LogEntry['level']);
+        return levelBuffer ? [...levelBuffer] : [];
     }
 }
 

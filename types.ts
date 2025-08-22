@@ -95,6 +95,10 @@ export interface LogEntry {
     message: string;
 }
 
+export const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'COINGECKO', 'BINANCE_API', 'BINANCE_WS'];
+export type LogTab = 'ALL' | LogEntry['level'];
+
+
 export interface BotSettings {
     // Trading Parameters
     INITIAL_VIRTUAL_BALANCE: number;
