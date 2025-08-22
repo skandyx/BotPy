@@ -17,7 +17,7 @@ class LogService {
             message,
         };
         this.logs.push(newLog);
-        if (this.logs.length > 200) {
+        if (this.logs.length > 500) {
             this.logs.shift();
         }
         this.subscribers.forEach(cb => cb(newLog));

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { api } from '../services/mockApi';
-import { BotStatus, Trade, PerformanceStats, OrderSide, TradingMode, BotSettings, OrderStatus } from '../types';
+import { BotStatus, Trade, PerformanceStats, OrderSide, TradingMode, BotSettings, OrderStatus, ScannedPair } from '../types';
 import StatCard from '../components/common/StatCard';
 import Spinner from '../components/common/Spinner';
 import Modal from '../components/common/Modal';
@@ -17,6 +17,26 @@ const formatPrice = (price: number | undefined | null): string => {
     if (price >= 0.1) return price.toFixed(4);
     if (price >= 0.001) return price.toFixed(6);
     return price.toFixed(8);
+};
+
+const getTrendJsx = (trend: ScannedPair['trend'] | ScannedPair['trend_4h']) => {
+    if (!trend) return <span className="text-gray-500">-</span>;
+    switch(trend) {
+        case 'UP': return <span className="text-green-400 flex items-center gap-1">▲ UP</span>;
+        case 'DOWN': return <span className="text-red-400 flex items-center gap-1">▼ DOWN</span>;
+        default: return <span className="text-gray-400">- NEUTRAL</span>;
+    }
+}
+
+const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
+    if (!score) return 'bg-gray-700 text-gray-200';
+    switch (score) {
+        case 'STRONG BUY': return 'bg-green-600 text-green-100';
+        case 'BUY': return 'bg-green-800 text-green-200';
+        case 'HOLD': return 'bg-gray-700 text-gray-200';
+        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
+        default: return 'bg-gray-700 text-gray-200';
+    }
 };
 
 const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void }> = ({ positions, onManualClose }) => {
@@ -36,7 +56,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL', 'PnL %'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'PnL %', 'Score Entrée', 'Tendance 4h', 'RSI Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -47,6 +67,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {positions.map(pos => {
                         const priceClass = pos.priceDirection === 'up' ? 'text-green-400' : (pos.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
+                        const snapshot = pos.entry_snapshot;
                         return (
                             <tr key={pos.id}>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pos.symbol}</td>
@@ -54,10 +75,14 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.entry_price)}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pos.current_price || pos.entry_price)}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pos.quantity.toFixed(4)}</td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.stop_loss)}</td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
-                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>{pos.pnl?.toFixed(2) || 'N/A'}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
+                                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(snapshot?.score)}`}>
+                                        {snapshot?.score || 'N/A'}
+                                    </span>
+                                </td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(snapshot?.trend_4h)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi?.toFixed(1) || 'N/A'}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <button
                                         onClick={() => onManualClose(pos)}

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
-import { Trade, OrderSide, TradingMode } from '../types';
+import { Trade, OrderSide, TradingMode, ScannedPair } from '../types';
 import Spinner from '../components/common/Spinner';
 import StatCard from '../components/common/StatCard';
 import { useAppContext } from '../contexts/AppContext';
@@ -32,6 +32,25 @@ const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 };
 
+const getTrendJsx = (trend: ScannedPair['trend'] | ScannedPair['trend_4h']) => {
+    if (!trend) return <span className="text-gray-500">-</span>;
+    switch(trend) {
+        case 'UP': return <span className="text-green-400 flex items-center gap-1">▲ UP</span>;
+        case 'DOWN': return <span className="text-red-400 flex items-center gap-1">▼ DOWN</span>;
+        default: return <span className="text-gray-400">- NEUTRAL</span>;
+    }
+}
+
+const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
+    if (!score) return 'bg-gray-700 text-gray-200';
+    switch (score) {
+        case 'STRONG BUY': return 'bg-green-600 text-green-100';
+        case 'BUY': return 'bg-green-800 text-green-200';
+        case 'HOLD': return 'bg-gray-700 text-gray-200';
+        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
+        default: return 'bg-gray-700 text-gray-200';
+    }
+};
 
 // --- SUB-COMPONENTS ---
 const SortableHeader: React.FC<{
@@ -135,7 +154,7 @@ const HistoryPage: React.FC = () => {
         return;
     }
 
-    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Quantité', 'PnL', 'PnL %'];
+    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Quantité', 'PnL', 'PnL %', 'Score Entrée', 'Tendance 4h Entrée', 'RSI Entrée'];
     
     const rows = filteredAndSortedTrades.map(trade => [
         trade.id,
@@ -148,7 +167,10 @@ const HistoryPage: React.FC = () => {
         trade.exit_price || 'N/A',
         trade.quantity,
         trade.pnl?.toFixed(4) || 'N/A',
-        trade.pnl_pct?.toFixed(2) || 'N/A'
+        trade.pnl_pct?.toFixed(2) || 'N/A',
+        trade.entry_snapshot?.score || 'N/A',
+        trade.entry_snapshot?.trend_4h || 'N/A',
+        trade.entry_snapshot?.rsi?.toFixed(2) || 'N/A'
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -215,11 +237,11 @@ const HistoryPage: React.FC = () => {
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Côté</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mode</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Entrée</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 4h</th>
+                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">RSI Entrée</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Heure d'Entrée</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Heure de Sortie</SortableHeader>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prix d'Entrée</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prix de Sortie</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl">PnL</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="pnl_pct">PnL %</SortableHeader>
                     </tr>
@@ -230,14 +252,14 @@ const HistoryPage: React.FC = () => {
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${(trade.mode === TradingMode.REAL_LIVE || trade.mode === TradingMode.REAL_PAPER) ? 'bg-red-900 text-red-300' : 'bg-yellow-600 text-yellow-950'}`}>
-                                    {trade.mode}
+                                <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(trade.entry_snapshot?.score)}`}>
+                                    {trade.entry_snapshot?.score || 'N/A'}
                                 </span>
                             </td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend_4h)}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{trade.entry_snapshot?.rsi?.toFixed(1) || 'N/A'}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{new Date(trade.entry_time).toLocaleString(undefined, dateTimeFormatOptions)}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{trade.exit_time ? new Date(trade.exit_time).toLocaleString(undefined, dateTimeFormatOptions) : 'N/A'}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.entry_price)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.exit_price)}</td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl)}`}>{trade.pnl?.toFixed(2) || 'N/A'}</td>
                              <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(trade.pnl_pct)}`}>{trade.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                         </tr>

@@ -13,7 +13,7 @@ const ConsolePage: React.FC = () => {
 
   useEffect(() => {
     const handleNewLog = (newLog: LogEntry) => {
-      setLogs((prevLogs) => [...prevLogs.slice(-199), newLog]); // Keep logs capped
+      setLogs((prevLogs) => [...prevLogs.slice(-499), newLog]); // Keep logs capped
     };
     
     setLogs(logService.getInitialLogs());
