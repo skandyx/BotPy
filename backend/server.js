@@ -217,54 +217,85 @@ class RealtimeAnalyzer {
     }
 
     _calculateMlScore(indicators) {
-        const { rsi, adx, trend1m, trend4h, marketRegime, macdHistogram } = indicators;
+        const { rsi, adx, trend1m, trend15m, trend30m, trend1h, trend4h, marketRegime, macdHistogram } = indicators;
         let score = 0;
         const MAX_SCORE = 100;
-
-        // Weight distribution (total should be 100)
+    
         const WEIGHTS = {
             REGIME: 30,
-            TREND_4H: 25,
-            TREND_1M: 15,
+            TREND_4H: 10,
+            TREND_1H: 10,
+            TREND_30M: 5,
+            TREND_15M: 5,
+            TREND_1M: 5,
             RSI: 15,
-            ADX: 5,
             MACD: 10,
+            ADX: 10,
         };
-
-        // 1. Market Regime (Most important)
+    
+        // 1. Strategic Factors (Long Term)
         if (marketRegime === 'UPTREND') score += WEIGHTS.REGIME;
-        else if (marketRegime === 'DOWNTREND') score -= WEIGHTS.REGIME / 2; // Penalize, but less harshly than a reward
-
-        // 2. 4h Trend
-        if (trend4h === 'UP') score += WEIGHTS.TREND_4H;
-        else if (trend4h === 'DOWN') score -= WEIGHTS.TREND_4H / 2;
-
-        // 3. 1m Trend
-        if (trend1m === 'UP') score += WEIGHTS.TREND_1M;
-        else if (trend1m === 'DOWN') score -= WEIGHTS.TREND_1M;
-
-        // 4. RSI (scaled)
+        else if (marketRegime === 'DOWNTREND') score -= WEIGHTS.REGIME * 1.5; // Heavy penalty for wrong regime
+    
+        // 2. Trend Confluence & Divergence
+        const trends = [
+            { trend: trend4h, weight: WEIGHTS.TREND_4H },
+            { trend: trend1h, weight: WEIGHTS.TREND_1H },
+            { trend: trend30m, weight: WEIGHTS.TREND_30M },
+            { trend: trend15m, weight: WEIGHTS.TREND_15M },
+            { trend: trend1m, weight: WEIGHTS.TREND_1M },
+        ];
+        
+        let allTrendsUp = true;
+        for (const { trend, weight } of trends) {
+            if (trend === 'UP') {
+                score += weight;
+            } else if (trend === 'DOWN') {
+                // Penalize divergence more than rewarding confluence
+                score -= weight * 1.2; 
+                allTrendsUp = false;
+            } else { // NEUTRAL
+                score -= weight * 0.5; // Small penalty for lack of trend
+                allTrendsUp = false;
+            }
+        }
+        
+        // Confluence bonus
+        if (marketRegime === 'UPTREND' && allTrendsUp) {
+            score += 5; // Add a bonus for perfect alignment
+        }
+    
+        // 3. Tactical Indicators (1m)
+        // RSI (scaled)
         if (rsi > 50 && rsi < 80) { // Sweet spot
             const rsiScore = ((rsi - 50) / 30) * WEIGHTS.RSI; // Scale 50-80 range to 0-15 points
             score += rsiScore;
-        } else if (rsi < 40) {
+        } else if (rsi <= 40) {
             score -= WEIGHTS.RSI / 2;
         }
-
-        // 5. ADX
-        if (adx > 25) score += WEIGHTS.ADX;
-
-        // 6. MACD
-        if (macdHistogram > 0) score += WEIGHTS.MACD;
-        else score -= WEIGHTS.MACD;
-
+    
+        // ADX
+        if (adx > 25) {
+            score += WEIGHTS.ADX;
+        }
+    
+        // MACD
+        if (macdHistogram > 0) {
+            score += WEIGHTS.MACD;
+        } else {
+            score -= WEIGHTS.MACD;
+        }
+    
         // Normalize score to be between 0 and 100
         const normalizedScore = Math.max(0, Math.min(MAX_SCORE, score));
         
         let prediction = 'NEUTRAL';
-        if (normalizedScore > 65) prediction = 'UP';
-        else if (normalizedScore < 35) prediction = 'DOWN';
-
+        if (normalizedScore > 65) {
+            prediction = 'UP';
+        } else if (normalizedScore < 35) {
+            prediction = 'DOWN';
+        }
+    
         return { score: normalizedScore, prediction };
     }
 
@@ -405,6 +436,9 @@ class RealtimeAnalyzer {
             rsi: rsi,
             adx: adx,
             trend1m: trend1m,
+            trend15m: pairToUpdate.trend_15m,
+            trend30m: pairToUpdate.trend_30m,
+            trend1h: pairToUpdate.trend_1h,
             trend4h: pairToUpdate.trend_4h,
             marketRegime: pairToUpdate.marketRegime,
             macdHistogram: macd.histogram,
@@ -556,29 +590,25 @@ const runScannerLoop = async () => {
     try {
         const newScannedPairs = await scannerService.runScan(botState.settings);
 
-        // Create maps for efficient merging
         const newPairsMap = new Map(newScannedPairs.map(p => [p.symbol, p]));
         const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
         const mergedCache = [];
 
-        // Iterate over the new list of pairs from the scan
         for (const [symbol, newPair] of newPairsMap.entries()) {
             const existingPair = currentCacheMap.get(symbol);
             if (existingPair) {
-                // Pair already exists. Merge data.
-                // Keep the real-time data from the existing pair (rsi, adx, price, score, etc.)
-                // and update it with the long-term data from the new scan.
-                existingPair.trend_4h = newPair.trend_4h;
-                // These are now handled by websockets, but initial scan provides a baseline
-                existingPair.trend_1h = newPair.trend_1h;
-                existingPair.trend_30m = newPair.trend_30m;
-                existingPair.trend_15m = newPair.trend_15m;
+                // BUG FIX: Only merge data the scanner is responsible for.
+                // Do NOT overwrite real-time trends with 'NEUTRAL' placeholders.
                 existingPair.marketRegime = newPair.marketRegime;
-                existingPair.volume = newPair.volume; // Volume also updates periodically
+                existingPair.trend_4h = newPair.trend_4h;
+                existingPair.volume = newPair.volume;
                 existingPair.macd_4h = newPair.macd_4h;
                 mergedCache.push(existingPair);
             } else {
-                // This is a brand new pair that wasn't in the cache before.
+                // This is a new pair. Initialize all fields to ensure a consistent object shape.
+                newPair.trend_1h = 'NEUTRAL';
+                newPair.trend_30m = 'NEUTRAL';
+                newPair.trend_15m = 'NEUTRAL';
                 mergedCache.push(newPair);
             }
         }

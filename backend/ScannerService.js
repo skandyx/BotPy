@@ -127,9 +127,6 @@ export class ScannerService {
         return {
             priceDirection: 'neutral',
             trend: 'NEUTRAL', // 1m trend will be populated by websocket
-            trend_15m: 'NEUTRAL', // Populated by websocket
-            trend_30m: 'NEUTRAL', // Populated by websocket
-            trend_1h: 'NEUTRAL', // Populated by websocket
             trend_4h,
             marketRegime,
             rsi: 50,
