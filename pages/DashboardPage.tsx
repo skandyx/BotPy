@@ -56,7 +56,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'PnL %', 'Score Entrée', 'Tendance 4h', 'RSI Entrée'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h', 'RSI Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -75,6 +75,9 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.entry_price)}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pos.current_price || pos.entry_price)}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pos.quantity.toFixed(4)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.stop_loss)}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.take_profit)}</td>
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>${pos.pnl?.toFixed(2) || '0.00'}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
                                     <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(snapshot?.score)}`}>

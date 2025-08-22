@@ -138,18 +138,22 @@ const ScannerPage: React.FC = () => {
     }
   }
 
+  const totalColumnCount = useMemo(() => {
+    if (!settings) return 10;
+    let count = 8; // Symbole, Prix, Score, Volume, Volatilité, RSI, ADX
+    if (settings.USE_ML_MODEL_FILTER) count += 2;
+    if (settings.USE_CONFLUENCE_FILTER_1M) count++;
+    if (settings.USE_CONFLUENCE_FILTER_15M) count++;
+    if (settings.USE_CONFLUENCE_FILTER_30M) count++;
+    if (settings.USE_CONFLUENCE_FILTER_1H) count++;
+    if (settings.USE_CONFLUENCE_FILTER_4H) count++;
+    if (settings.USE_MARKET_REGIME_FILTER) count++;
+    return count;
+  }, [settings]);
+
   if (!settings) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
-
-  const visibleTimeframeCount = [
-    settings.USE_CONFLUENCE_FILTER_1M,
-    settings.USE_CONFLUENCE_FILTER_15M,
-    settings.USE_CONFLUENCE_FILTER_30M,
-    settings.USE_CONFLUENCE_FILTER_1H,
-    settings.USE_CONFLUENCE_FILTER_4H,
-  ].filter(Boolean).length;
-  const totalColumnCount = 10 + visibleTimeframeCount;
 
   return (
     <div className="space-y-6">
@@ -162,8 +166,8 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">Prédiction ML</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">Score ML</SortableHeader>
+                        {settings.USE_ML_MODEL_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">Prédiction ML</SortableHeader>}
+                        {settings.USE_ML_MODEL_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">Score ML</SortableHeader>}
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité</SortableHeader>
                         {settings.USE_CONFLUENCE_FILTER_1M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>}
@@ -171,7 +175,7 @@ const ScannerPage: React.FC = () => {
                         {settings.USE_CONFLUENCE_FILTER_30M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_30m">Tendance 30m</SortableHeader>}
                         {settings.USE_CONFLUENCE_FILTER_1H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>}
                         {settings.USE_CONFLUENCE_FILTER_4H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>}
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>
+                        {settings.USE_MARKET_REGIME_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>}
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
                     </tr>
@@ -192,8 +196,8 @@ const ScannerPage: React.FC = () => {
                                             {pair.score}
                                         </span>
                                     </td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>
+                                    {settings.USE_ML_MODEL_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>}
+                                    {settings.USE_ML_MODEL_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>}
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
                                     {settings.USE_CONFLUENCE_FILTER_1M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>}
@@ -201,7 +205,7 @@ const ScannerPage: React.FC = () => {
                                     {settings.USE_CONFLUENCE_FILTER_30M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>}
                                     {settings.USE_CONFLUENCE_FILTER_1H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>}
                                     {settings.USE_CONFLUENCE_FILTER_4H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>}
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>
+                                    {settings.USE_MARKET_REGIME_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>}
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
                                 </tr>
