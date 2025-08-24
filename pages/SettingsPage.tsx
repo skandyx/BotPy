@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
 import Spinner from '../components/common/Spinner';
@@ -7,6 +7,61 @@ import { useAppContext } from '../contexts/AppContext';
 import ToggleSwitch from '../components/common/ToggleSwitch';
 import Tooltip from '../components/common/Tooltip';
 import Modal from '../components/common/Modal';
+
+// --- TYPES & PROFILES ---
+type ProfileName = 'PRUDENT' | 'EQUILIBRE' | 'AGRESSIF';
+type ActiveProfile = ProfileName | 'PERSONNALISE';
+
+const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
+    PRUDENT: {
+        POSITION_SIZE_PCT: 2.0,
+        MAX_OPEN_POSITIONS: 4,
+        STOP_LOSS_PCT: 2.0,
+        TAKE_PROFIT_PCT: 3.0,
+        RSI_MIN_THRESHOLD: 55,
+        ADX_MIN_THRESHOLD: 28,
+        REQUIRE_STRONG_BUY: true,
+        USE_MARKET_REGIME_FILTER: true,
+        USE_CONFLUENCE_FILTER_1H: true,
+        USE_CONFLUENCE_FILTER_4H: true,
+        // Disable less critical ones for clarity
+        USE_CONFLUENCE_FILTER_1M: false,
+        USE_CONFLUENCE_FILTER_15M: false,
+        USE_CONFLUENCE_FILTER_30M: false,
+    },
+    EQUILIBRE: {
+        POSITION_SIZE_PCT: 3.0,
+        MAX_OPEN_POSITIONS: 5,
+        STOP_LOSS_PCT: 2.5,
+        TAKE_PROFIT_PCT: 4.0,
+        RSI_MIN_THRESHOLD: 50,
+        ADX_MIN_THRESHOLD: 25,
+        REQUIRE_STRONG_BUY: false,
+        USE_MARKET_REGIME_FILTER: true,
+        USE_CONFLUENCE_FILTER_1M: true,
+        USE_CONFLUENCE_FILTER_15M: true,
+        USE_CONFLUENCE_FILTER_30M: true,
+        USE_CONFLUENCE_FILTER_1H: true,
+        USE_CONFLUENCE_FILTER_4H: true,
+    },
+    AGRESSIF: {
+        POSITION_SIZE_PCT: 4.0,
+        MAX_OPEN_POSITIONS: 8,
+        STOP_LOSS_PCT: 3.5,
+        TAKE_PROFIT_PCT: 6.0,
+        RSI_MIN_THRESHOLD: 50,
+        ADX_MIN_THRESHOLD: 22,
+        REQUIRE_STRONG_BUY: false,
+        USE_MARKET_REGIME_FILTER: true,
+        // Focus on shorter term confluence
+        USE_CONFLUENCE_FILTER_1M: true,
+        USE_CONFLUENCE_FILTER_15M: true,
+        USE_CONFLUENCE_FILTER_30M: false,
+        USE_CONFLUENCE_FILTER_1H: true,
+        USE_CONFLUENCE_FILTER_4H: false,
+    }
+};
+
 
 // --- HELPERS ---
 const tooltips: Record<string, string> = {
@@ -47,7 +102,7 @@ const tooltips: Record<string, string> = {
     USE_CONFLUENCE_FILTER_4H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 4 heures est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_1H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 heure est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_30M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 30 minutes est également en HAUSSE.",
-    USE_CONfluence_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
+    USE_CONFLUENCE_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_1M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 minute (le signal d'entrée) est également en HAUSSE.",
     USE_CORRELATION_FILTER: "(Fonctionnalité future) Empêcher l'ouverture de trades sur plusieurs paires fortement corrélées en même temps pour diversifier le risque.",
     USE_NEWS_FILTER: "(Fonctionnalité future) Mettre automatiquement en pause le bot lors d'événements d'actualité économique majeurs pour éviter une volatilité extrême."
@@ -58,6 +113,7 @@ const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] s
 const SettingsPage: React.FC = () => {
     const { settings: contextSettings, setSettings: setContextSettings, incrementSettingsActivity, refreshData } = useAppContext();
     const [settings, setSettings] = useState<BotSettings | null>(contextSettings);
+    const [activeProfile, setActiveProfile] = useState<ActiveProfile>('PERSONNALISE');
     const [isSaving, setIsSaving] = useState(false);
     const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
     const [isTestingBinance, setIsTestingBinance] = useState(false);
@@ -71,6 +127,40 @@ const SettingsPage: React.FC = () => {
             setSettings(contextSettings);
         }
     }, [contextSettings]);
+
+    // Effect to detect the current profile based on settings
+    useEffect(() => {
+        if (!settings) return;
+
+        const checkProfile = (profile: Partial<BotSettings>): boolean => {
+            return Object.keys(profile).every(key => {
+                const settingKey = key as keyof BotSettings;
+                return settings[settingKey] === profile[settingKey];
+            });
+        };
+
+        let currentProfile: ActiveProfile = 'PERSONNALISE';
+        if (checkProfile(settingProfiles.PRUDENT)) {
+            currentProfile = 'PRUDENT';
+        } else if (checkProfile(settingProfiles.EQUILIBRE)) {
+            currentProfile = 'EQUILIBRE';
+        } else if (checkProfile(settingProfiles.AGRESSIF)) {
+            currentProfile = 'AGRESSIF';
+        }
+        
+        if (currentProfile !== activeProfile) {
+            setActiveProfile(currentProfile);
+        }
+
+    }, [settings, activeProfile]);
+
+
+    const handleProfileSelect = (profileName: ProfileName) => {
+        if (!settings) return;
+        const profileSettings = settingProfiles[profileName];
+        setSettings({ ...settings, ...profileSettings });
+        setActiveProfile(profileName);
+    };
 
     const showMessage = (text: string, type: 'success' | 'error' = 'success', duration: number = 4000) => {
         setSaveMessage({ text, type });
@@ -224,6 +314,35 @@ const SettingsPage: React.FC = () => {
                 </div>
             </div>
             
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-4">
+                <h3 className="text-lg font-semibold text-white">Profils de Configuration Rapide</h3>
+                <div className="flex flex-wrap gap-3">
+                    {(Object.keys(settingProfiles) as ProfileName[]).map(name => (
+                        <button
+                            key={name}
+                            onClick={() => handleProfileSelect(name)}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                                activeProfile === name 
+                                ? 'bg-[#f0b90b] text-black shadow-md' 
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                        >
+                            {name.charAt(0) + name.slice(1).toLowerCase()}
+                        </button>
+                    ))}
+                    <button
+                        disabled
+                        className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                            activeProfile === 'PERSONNALISE' 
+                            ? 'bg-sky-800 text-sky-200 cursor-default' 
+                            : 'bg-gray-800 text-gray-500 cursor-default'
+                        }`}
+                    >
+                        Personnalisé
+                    </button>
+                </div>
+            </div>
+
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-8">
                 <div>
                     <h3 className="text-lg font-semibold text-white mb-4">Paramètres du Bot</h3>
