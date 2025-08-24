@@ -297,6 +297,19 @@ class RealtimeAnalyzer {
         // --- 1M ANALYSIS AND SCORING ---
         if (closes.length < 26) return; // Need enough data for all indicators
         
+        // --- Volatility Calculation (FIX) ---
+        const lookbackPeriod = 20;
+        if (intervalKlines.length >= lookbackPeriod) {
+            const recentKlines = intervalKlines.slice(-lookbackPeriod);
+            const highestHigh = Math.max(...recentKlines.map(k => k.high));
+            const lowestLow = Math.min(...recentKlines.map(k => k.low));
+            if (lowestLow > 0) {
+                pairToUpdate.volatility = ((highestHigh - lowestLow) / lowestLow) * 100;
+            } else {
+                pairToUpdate.volatility = 0;
+            }
+        }
+
         pairToUpdate.rsi = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
         pairToUpdate.adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 20;
 
