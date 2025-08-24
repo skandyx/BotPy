@@ -36,14 +36,15 @@ LOSS_COOLDOWN_HOURS=4
 
 # --- ADVANCED STRATEGY & RISK MANAGEMENT ---
 # Utiliser un Stop Loss dynamique basé sur l'ATR (Average True Range). (true/false)
+# Si activé, le Trailing Stop Loss utilisera également l'ATR pour s'adapter à la volatilité.
 USE_ATR_STOP_LOSS=false
 # Le multiplicateur à appliquer à l'ATR pour définir la distance du Stop Loss (ex: 1.5).
 ATR_MULTIPLIER=1.5
 
 # Déplacer automatiquement le Stop Loss au point d'entrée une fois qu'un trade est profitable. (true/false)
 USE_AUTO_BREAKEVEN=true
-# Le niveau de profit (en multiple du risque initial 'R') pour déclencher le break-even (ex: 1.0).
-BREAKEVEN_TRIGGER_R=1.0
+# Le pourcentage de profit (%) pour déclencher le break-even (ex: 0.5 pour +0.5%).
+BREAKEVEN_TRIGGER_PCT=0.5
 
 # Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
 USE_RSI_OVERBOUGHT_FILTER=true

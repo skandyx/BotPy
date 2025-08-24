@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
@@ -14,20 +13,31 @@ type ActiveProfile = ProfileName | 'PERSONNALISE';
 
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
     PRUDENT: {
+        // As per user checklist for "Safe Trades"
         POSITION_SIZE_PCT: 2.0,
-        MAX_OPEN_POSITIONS: 4,
-        STOP_LOSS_PCT: 2.0,
-        TAKE_PROFIT_PCT: 3.0,
-        RSI_MIN_THRESHOLD: 55,
-        ADX_MIN_THRESHOLD: 28,
+        MAX_OPEN_POSITIONS: 3,
+        STOP_LOSS_PCT: 2.0, // Fallback, ATR is primary
+        TAKE_PROFIT_PCT: 10.0, // Main TP is high, as partial TP and trailing are used
+        RSI_MIN_THRESHOLD: 50,
+        ADX_MIN_THRESHOLD: 25,
         REQUIRE_STRONG_BUY: true,
         USE_MARKET_REGIME_FILTER: true,
+        // Confluence filters are implicitly handled by the new logic, but set for clarity
+        USE_CONFLUENCE_FILTER_1M: true,
+        USE_CONFLUENCE_FILTER_15M: true,
+        USE_CONFLUENCE_FILTER_30M: true,
         USE_CONFLUENCE_FILTER_1H: true,
         USE_CONFLUENCE_FILTER_4H: true,
-        // Disable less critical ones for clarity
-        USE_CONFLUENCE_FILTER_1M: false,
-        USE_CONFLUENCE_FILTER_15M: false,
-        USE_CONFLUENCE_FILTER_30M: false,
+        // --- Advanced Risk Management for this profile ---
+        USE_ATR_STOP_LOSS: true,
+        ATR_MULTIPLIER: 1.5,
+        USE_TRAILING_STOP_LOSS: true,
+        USE_AUTO_BREAKEVEN: true,
+        BREAKEVEN_TRIGGER_PCT: 0.5,
+        USE_PARTIAL_TAKE_PROFIT: true,
+        PARTIAL_TP_TRIGGER_PCT: 1.5,
+        PARTIAL_TP_SELL_QTY_PCT: 50,
+        RSI_OVERBOUGHT_THRESHOLD: 65, // Stricter for this profile
     },
     EQUILIBRE: {
         POSITION_SIZE_PCT: 3.0,
@@ -43,6 +53,14 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_CONFLUENCE_FILTER_30M: true,
         USE_CONFLUENCE_FILTER_1H: true,
         USE_CONFLUENCE_FILTER_4H: true,
+        // Reset advanced settings to default
+        USE_ATR_STOP_LOSS: false,
+        ATR_MULTIPLIER: 1.5,
+        USE_TRAILING_STOP_LOSS: true,
+        USE_AUTO_BREAKEVEN: true,
+        BREAKEVEN_TRIGGER_PCT: 1.0,
+        USE_PARTIAL_TAKE_PROFIT: false,
+        RSI_OVERBOUGHT_THRESHOLD: 70,
     },
     AGRESSIF: {
         POSITION_SIZE_PCT: 4.0,
@@ -53,12 +71,17 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         ADX_MIN_THRESHOLD: 22,
         REQUIRE_STRONG_BUY: false,
         USE_MARKET_REGIME_FILTER: true,
-        // Focus on shorter term confluence
         USE_CONFLUENCE_FILTER_1M: true,
         USE_CONFLUENCE_FILTER_15M: true,
         USE_CONFLUENCE_FILTER_30M: false,
         USE_CONFLUENCE_FILTER_1H: true,
         USE_CONFLUENCE_FILTER_4H: false,
+        // Reset advanced settings
+        USE_ATR_STOP_LOSS: false,
+        USE_AUTO_BREAKEVEN: false,
+        BREAKEVEN_TRIGGER_PCT: 1.5,
+        USE_PARTIAL_TAKE_PROFIT: false,
+        RSI_OVERBOUGHT_THRESHOLD: 75,
     }
 };
 
@@ -89,7 +112,7 @@ const tooltips: Record<string, string> = {
     USE_ATR_STOP_LOSS: "Utiliser un Stop Loss dynamique basé sur l'Average True Range (ATR), qui s'adapte à la volatilité du marché au lieu d'un pourcentage fixe.",
     ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
-    BREAKEVEN_TRIGGER_R: "Le niveau de profit (en multiple du risque initial 'R') auquel déclencher le passage au seuil de rentabilité (ex: 1.0 signifie lorsque le profit est égal au risque initial).",
+    BREAKEVEN_TRIGGER_PCT: "Le pourcentage de profit (%) auquel déclencher le passage au seuil de rentabilité (ex: 0.5% signifie que lorsque le profit atteint 0.5%, le SL est déplacé au prix d'entrée).",
     USE_RSI_OVERBOUGHT_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
     RSI_OVERBOUGHT_THRESHOLD: "Le niveau RSI au-dessus duquel un signal de trade sera ignoré (ex: 70).",
     USE_MACD_CONFIRMATION: "Exiger une confirmation de l'indicateur MACD (par exemple, un histogramme positif) avant d'ouvrir un trade, ajoutant une couche de validation de momentum.",
@@ -135,6 +158,10 @@ const SettingsPage: React.FC = () => {
         const checkProfile = (profile: Partial<BotSettings>): boolean => {
             return Object.keys(profile).every(key => {
                 const settingKey = key as keyof BotSettings;
+                // Handle potential floating point inaccuracies for numeric comparisons
+                if (typeof settings[settingKey] === 'number') {
+                    return Math.abs((settings[settingKey] as number) - (profile[settingKey] as number)) < 0.001;
+                }
                 return settings[settingKey] === profile[settingKey];
             });
         };
@@ -416,7 +443,7 @@ const SettingsPage: React.FC = () => {
                         {renderField('ATR_MULTIPLIER', "Multiplicateur ATR")}
                         <div></div>
                         {renderToggle('USE_AUTO_BREAKEVEN', "Utiliser l'Auto Break-even")}
-                        {renderField('BREAKEVEN_TRIGGER_R', "Déclencheur Break-even (R)")}
+                        {renderField('BREAKEVEN_TRIGGER_PCT', "Déclencheur Break-even (%)")}
                         <div></div>
                         {renderToggle('USE_RSI_OVERBOUGHT_FILTER', "Utiliser le filtre RSI Surachat")}
                         {renderField('RSI_OVERBOUGHT_THRESHOLD', "Seuil RSI Surachat")}

@@ -143,7 +143,7 @@ export interface BotSettings {
     
     // Auto Break-even
     USE_AUTO_BREAKEVEN: boolean;
-    BREAKEVEN_TRIGGER_R: number; // R-multiple to trigger break-even
+    BREAKEVEN_TRIGGER_PCT: number; // PnL % to trigger break-even
     
     // RSI Overbought Filter
     USE_RSI_OVERBOUGHT_FILTER: boolean;

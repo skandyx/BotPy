@@ -144,7 +144,7 @@ const loadData = async () => {
             USE_ATR_STOP_LOSS: false,
             ATR_MULTIPLIER: 1.5,
             USE_AUTO_BREAKEVEN: true,
-            BREAKEVEN_TRIGGER_R: 1.0,
+            BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
             USE_RSI_OVERBOUGHT_FILTER: true,
             RSI_OVERBOUGHT_THRESHOLD: 70,
             USE_MACD_CONFIRMATION: true,
@@ -250,49 +250,6 @@ class RealtimeAnalyzer {
         }
     }
 
-    _calculateMlScore(indicators) {
-        const { rsi, adx, trend1m, trend15m, trend30m, trend1h, trend4h, marketRegime, macdHistogram } = indicators;
-        let score = 0;
-        const MAX_SCORE = 100;
-    
-        const WEIGHTS = {
-            REGIME: 30, TREND_4H: 10, TREND_1H: 10, TREND_30M: 5,
-            TREND_15M: 5, TREND_1M: 5, RSI: 15, MACD: 10, ADX: 10,
-        };
-    
-        if (marketRegime === 'UPTREND') score += WEIGHTS.REGIME;
-        else if (marketRegime === 'DOWNTREND') score -= WEIGHTS.REGIME * 1.5;
-    
-        const trends = [
-            { trend: trend4h, weight: WEIGHTS.TREND_4H }, { trend: trend1h, weight: WEIGHTS.TREND_1H },
-            { trend: trend30m, weight: WEIGHTS.TREND_30M }, { trend: trend15m, weight: WEIGHTS.TREND_15M },
-            { trend: trend1m, weight: WEIGHTS.TREND_1M },
-        ];
-        
-        let allTrendsUp = true;
-        for (const { trend, weight } of trends) {
-            if (trend === 'UP') score += weight;
-            else {
-                allTrendsUp = false;
-                score -= trend === 'DOWN' ? weight * 1.2 : weight * 0.5;
-            }
-        }
-        
-        if (marketRegime === 'UPTREND' && allTrendsUp) score += 5;
-    
-        if (rsi > 50 && rsi < 80) score += ((rsi - 50) / 30) * WEIGHTS.RSI;
-        else if (rsi <= 40) score -= WEIGHTS.RSI / 2;
-    
-        if (adx > 25) score += WEIGHTS.ADX;
-        if (macdHistogram > 0) score += WEIGHTS.MACD;
-        else score -= WEIGHTS.MACD;
-    
-        const normalizedScore = Math.max(0, Math.min(MAX_SCORE, score));
-        let prediction = normalizedScore > 65 ? 'UP' : (normalizedScore < 35 ? 'DOWN' : 'NEUTRAL');
-    
-        return { score: normalizedScore, prediction };
-    }
-
     async handleKline(klineMsg, interval) {
         this.log('BINANCE_WS', `[${interval}] Bougie clôturée reçue pour ${klineMsg.s}. Traitement...`);
         if (!this.settings || Object.keys(this.settings).length === 0) return;
@@ -338,59 +295,37 @@ class RealtimeAnalyzer {
         if (interval !== '1m') return;
         
         // --- 1M ANALYSIS AND SCORING ---
-        const volumes = intervalKlines.map(d => d.volume);
-
         if (closes.length < 26) return; // Need enough data for all indicators
-
-        const stdDev = this.calculateStdDev(closes);
-        const avgPrice = closes.reduce((a, b) => a + b, 0) / closes.length;
-        pairToUpdate.volatility = avgPrice > 0 ? (stdDev / avgPrice) * 100 : 0;
         
         pairToUpdate.rsi = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
         pairToUpdate.adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 20;
-        pairToUpdate.atr = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop() || 0;
-        pairToUpdate.prev_macd_histogram = pairToUpdate.macd?.histogram;
-        pairToUpdate.macd = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }).pop() || { histogram: 0 };
 
         let score = 'HOLD';
 
-        // --- "SUPER FILTRE" LOGIC ---
-        // Step 1 (Macro) is pre-applied by ScannerService. Pairs here have already passed.
+        // --- NEW "SAFE TRADES" CHECKLIST LOGIC ---
+        const is4hUp = pairToUpdate.trend_4h === 'UP';
+        const is1hUp = pairToUpdate.trend_1h === 'UP';
+        const isRsi15mOk = (pairToUpdate.rsi_15m || 0) >= 50 && (pairToUpdate.rsi_15m || 0) <= 65;
+        const isRsi30mOk = (pairToUpdate.rsi_30m || 0) >= 50 && (pairToUpdate.rsi_30m || 0) <= 65;
+        const isAdxOk = pairToUpdate.adx >= this.settings.ADX_MIN_THRESHOLD;
+        const isRsi1mSweetSpot = pairToUpdate.rsi > 50 && pairToUpdate.rsi < 70;
 
-        // Step 2: Intermediate Filter (30m + 15m)
-        const isIntermediateOk = 
-            (!this.settings.USE_CONFLUENCE_FILTER_30M || (pairToUpdate.trend_30m === 'UP' && (pairToUpdate.rsi_30m || 0) > 50)) &&
-            (!this.settings.USE_CONFLUENCE_FILTER_15M || (pairToUpdate.trend_15m === 'UP' && (pairToUpdate.rsi_15m || 0) > 50));
-
-        if (isIntermediateOk) {
-            // Step 3: Micro Timing (1m)
-            const isRsiSweetSpot = pairToUpdate.rsi > 50 && pairToUpdate.rsi < 70;
-            const isMacdCrossUp = (pairToUpdate.prev_macd_histogram || 0) <= 0 && (pairToUpdate.macd?.histogram || 0) > 0;
-            const isGreenCandle = newKline.close > newKline.open;
-            const isVolumeConfirmed = !this.settings.USE_VOLUME_CONFIRMATION || (volumes.length >= 20 && newKline.volume > SMA.calculate({period: 20, values: volumes}).pop());
-            const isBreakout = newKline.close > Math.max(...highs.slice(-21, -1)); // Breakout of last 20 highs (excluding current)
-            const isAdxStrong = pairToUpdate.adx >= this.settings.ADX_MIN_THRESHOLD;
-            const isVolatilityOk = pairToUpdate.volatility >= this.settings.MIN_VOLATILITY_PCT;
-
-            if (isRsiSweetSpot && isMacdCrossUp && isGreenCandle && isVolumeConfirmed && isBreakout && isAdxStrong && isVolatilityOk) {
+        // All pre-conditions must be met
+        if (is4hUp && is1hUp && isRsi15mOk && isRsi30mOk && isAdxOk) {
+            // Final 1m trigger condition
+            if (isRsi1mSweetSpot) {
                 score = 'STRONG BUY';
             }
         }
         
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
-        if ((score === 'BUY' || score === 'STRONG BUY') && cooldownInfo && Date.now() < cooldownInfo.until) {
+        if (score === 'STRONG BUY' && cooldownInfo && Date.now() < cooldownInfo.until) {
             score = 'COOLDOWN';
         }
+
         pairToUpdate.score = score;
         
         broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
-    }
-    
-    calculateStdDev(arr) {
-        const n = arr.length;
-        if (n === 0) return 0;
-        const mean = arr.reduce((a, b) => a + b) / n;
-        return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
     }
 }
 
@@ -519,6 +454,15 @@ const tradingEngine = {
             const currentPrice = priceFeeder.latestPrices.get(position.symbol);
             if (!currentPrice) continue;
             
+            const latestScannerData = botState.scannerCache.find(p => p.symbol === position.symbol);
+
+            // AUTO-EXIT: Close if 4h trend flips
+            if (latestScannerData && latestScannerData.trend_4h !== 'UP') {
+                this.closeTrade(position.id, currentPrice, `Auto-Exit: 4h Trend changed to ${latestScannerData.trend_4h}`);
+                positionsWereUpdated = true;
+                continue; // Skip further processing for this closed trade
+            }
+
             const pnlOnRemaining = (currentPrice - position.entry_price) * position.quantity;
             const totalPnl = (position.realized_pnl || 0) + pnlOnRemaining;
             const entryValue = position.entry_price * (position.initial_quantity || position.quantity);
@@ -528,7 +472,13 @@ const tradingEngine = {
             if (currentPrice > position.highest_price_since_entry) {
                 position.highest_price_since_entry = currentPrice;
                 if (botState.settings.USE_TRAILING_STOP_LOSS) {
-                    const newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
+                    let newStopLoss;
+                    if (botState.settings.USE_ATR_STOP_LOSS && latestScannerData && latestScannerData.atr_15m) {
+                        newStopLoss = currentPrice - (latestScannerData.atr_15m * botState.settings.ATR_MULTIPLIER);
+                    } else {
+                        newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
+                    }
+
                     if (newStopLoss > position.stop_loss) {
                         position.stop_loss = newStopLoss;
                         log('TRADE', `Trailing SL for ${position.symbol} updated to ${newStopLoss.toFixed(4)}`);
@@ -536,10 +486,10 @@ const tradingEngine = {
                 }
             }
 
-            if (botState.settings.USE_AUTO_BREAKEVEN && !position.is_at_breakeven && totalPnl >= (position.initial_risk_usd * botState.settings.BREAKEVEN_TRIGGER_R)) {
+            if (botState.settings.USE_AUTO_BREAKEVEN && !position.is_at_breakeven && position.pnl_pct >= botState.settings.BREAKEVEN_TRIGGER_PCT) {
                 position.stop_loss = position.entry_price;
                 position.is_at_breakeven = true;
-                log('TRADE', `AUTO-BREAKEVEN: Moved SL to entry for ${position.symbol}`);
+                log('TRADE', `AUTO-BREAKEVEN: Moved SL to entry for ${position.symbol} at +${position.pnl_pct.toFixed(2)}% profit`);
             }
             
             if (botState.settings.USE_PARTIAL_TAKE_PROFIT && !position.partial_tp_hit && position.pnl_pct >= botState.settings.PARTIAL_TP_TRIGGER_PCT) {
@@ -551,7 +501,7 @@ const tradingEngine = {
                 log('TRADE', `PARTIAL TP: Sold ${sellQty.toFixed(4)} ${position.symbol}`);
             }
 
-            if (currentPrice <= position.stop_loss || (!botState.settings.USE_TRAILING_STOP_LOSS && currentPrice >= position.take_profit)) {
+            if (currentPrice <= position.stop_loss || currentPrice >= position.take_profit) {
                 const reason = currentPrice <= position.stop_loss ? 'Stop Loss hit' : 'Take Profit hit';
                 this.closeTrade(position.id, currentPrice, reason);
                 positionsWereUpdated = true;
@@ -563,7 +513,7 @@ const tradingEngine = {
         if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) return;
 
         for (const pair of botState.scannerCache) {
-            const isSignal = pair.score === 'STRONG BUY' || (!botState.settings.REQUIRE_STRONG_BUY && pair.score === 'BUY');
+             const isSignal = botState.settings.REQUIRE_STRONG_BUY ? pair.score === 'STRONG BUY' : (pair.score === 'STRONG BUY' || pair.score === 'BUY');
             if (isSignal && !botState.activePositions.some(p => p.symbol === pair.symbol)) {
                 this.openTrade(pair);
                 if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) break;
@@ -573,7 +523,13 @@ const tradingEngine = {
     openTrade: function(pair) {
         const { settings, balance } = botState;
         const currentPrice = priceFeeder.latestPrices.get(pair.symbol);
-        if (!currentPrice || !(pair.atr_15m || pair.atr)) return;
+        const atr15m = pair.atr_15m;
+        
+        if (!currentPrice) return;
+        if (settings.USE_ATR_STOP_LOSS && !atr15m) {
+            log('WARN', `Cannot open ${pair.symbol}: ATR Stop Loss is enabled but ATR(15m) is not available.`);
+            return;
+        }
 
         let sizePct = settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY' ? settings.STRONG_BUY_POSITION_SIZE_PCT : settings.POSITION_SIZE_PCT;
         const positionSizeUSD = balance * (sizePct / 100);
@@ -584,7 +540,7 @@ const tradingEngine = {
         if (balance < cost) return log('WARN', `Insufficient balance for ${pair.symbol}.`);
 
         let stopLossPrice = settings.USE_ATR_STOP_LOSS 
-            ? entryPrice - ((pair.atr_15m || pair.atr) * settings.ATR_MULTIPLIER)
+            ? entryPrice - (atr15m * settings.ATR_MULTIPLIER)
             : entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
         const initialRiskUSD = (entryPrice - stopLossPrice) * quantity;
 
