@@ -60,14 +60,23 @@ export interface ScannedPair {
     trend_4h?: 'UP' | 'DOWN' | 'NEUTRAL';
     marketRegime?: 'UPTREND' | 'DOWNTREND' | 'NEUTRAL'; // For market regime filter
     rsi: number;
+    rsi_15m?: number;
+    rsi_30m?: number;
+    rsi_1h?: number;
+    rsi_4h?: number;
     adx: number;
-    atr?: number;
+    atr?: number; // 1m ATR
+    atr_15m?: number;
     macd?: { MACD: number; signal: number; histogram: number; };
+    prev_macd_histogram?: number; // For detecting MACD cross
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN';
     volatility: number; // Volatility as a percentage
     macd_4h?: { MACD: number; signal: number; histogram: number; };
     ml_score?: number; // ML Model Confidence Score (0-100)
     ml_prediction?: 'UP' | 'DOWN' | 'NEUTRAL'; // ML Model Prediction
+    volume_4h_increasing?: boolean;
+    price_above_sma200_1h?: boolean;
+    price_above_sma200_4h?: boolean;
 }
 
 
@@ -113,6 +122,8 @@ export interface BotSettings {
     // Market Scanner & Strategy Filters
     MIN_VOLUME_USD: number;
     MIN_VOLATILITY_PCT: number;
+    RSI_MIN_THRESHOLD: number;
+    ADX_MIN_THRESHOLD: number;
     COINGECKO_API_KEY: string; // Not used for scanner, but for general context
     COINGECKO_SYNC_SECONDS: number;
     EXCLUDED_PAIRS: string;

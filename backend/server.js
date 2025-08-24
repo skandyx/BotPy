@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import http from 'http';
 import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
-import { RSI, ADX, ATR, MACD } from 'technicalindicators';
+import { RSI, ADX, ATR, MACD, SMA } from 'technicalindicators';
 
 
 // --- Basic Setup ---
@@ -129,6 +129,8 @@ const loadData = async () => {
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 400000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
+            RSI_MIN_THRESHOLD: parseFloat(process.env.RSI_MIN_THRESHOLD) || 50,
+            ADX_MIN_THRESHOLD: parseFloat(process.env.ADX_MIN_THRESHOLD) || 25,
             COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
             COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 60,
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
@@ -223,6 +225,7 @@ class RealtimeAnalyzer {
             for (const tf of timeframes) {
                 const klines = await scannerService.fetchKlinesFromBinance(symbol, tf, 0, 200);
                 const formattedKlines = klines.map(k => ({
+                    open: parseFloat(k[1]),
                     close: parseFloat(k[4]),
                     high: parseFloat(k[2]),
                     low: parseFloat(k[3]),
@@ -301,7 +304,7 @@ class RealtimeAnalyzer {
         if (!symbolKlines) return;
 
         const k = klineMsg.k;
-        const newKline = { close: parseFloat(k.c), high: parseFloat(k.h), low: parseFloat(k.l), volume: parseFloat(k.v) };
+        const newKline = { open: parseFloat(k.o), close: parseFloat(k.c), high: parseFloat(k.h), low: parseFloat(k.l), volume: parseFloat(k.v) };
 
         const intervalKlines = symbolKlines.get(interval) || [];
         intervalKlines.push(newKline);
@@ -310,6 +313,11 @@ class RealtimeAnalyzer {
         
         const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
         if (!pairToUpdate) return;
+        
+        // --- Update indicators for the current timeframe ---
+        const closes = intervalKlines.map(d => d.close);
+        const highs = intervalKlines.map(d => d.high);
+        const lows = intervalKlines.map(d => d.low);
 
         const newTrend = scannerService._calculateTrend(intervalKlines).trend;
         const trendKey = interval === '1m' ? 'trend' : `trend_${interval}`;
@@ -317,50 +325,56 @@ class RealtimeAnalyzer {
             this.log('SCANNER', `[${interval}] Trend for ${symbol} updated to ${newTrend}.`);
             pairToUpdate[trendKey] = newTrend;
         }
-        
+
+        if (['15m', '30m'].includes(interval) && closes.length >= 14) {
+            const rsiKey = `rsi_${interval}`;
+            pairToUpdate[rsiKey] = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
+        }
+        if (interval === '15m' && closes.length >= 14) {
+            pairToUpdate.atr_15m = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop() || 0;
+        }
+
+        // Only do the full scoring on the 1m interval
         if (interval !== '1m') return;
         
-        const closes = intervalKlines.map(d => d.close);
-        const highs = intervalKlines.map(d => d.high);
-        const lows = intervalKlines.map(d => d.low);
+        // --- 1M ANALYSIS AND SCORING ---
         const volumes = intervalKlines.map(d => d.volume);
 
-        if (closes.length < 26) return;
+        if (closes.length < 26) return; // Need enough data for all indicators
 
         const stdDev = this.calculateStdDev(closes);
         const avgPrice = closes.reduce((a, b) => a + b, 0) / closes.length;
         pairToUpdate.volatility = avgPrice > 0 ? (stdDev / avgPrice) * 100 : 0;
-
-        let isVolumeConfirmed = !this.settings.USE_VOLUME_CONFIRMATION || (volumes.length >= 20 && newKline.volume >= (volumes.slice(-20).reduce((a, b) => a + b, 0) / 20));
-
+        
         pairToUpdate.rsi = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
         pairToUpdate.adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 20;
         pairToUpdate.atr = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop() || 0;
+        pairToUpdate.prev_macd_histogram = pairToUpdate.macd?.histogram;
         pairToUpdate.macd = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }).pop() || { histogram: 0 };
 
         let score = 'HOLD';
-        const isMarketRegimeOk = !this.settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
-        const isFullConfluenceOk = (!this.settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP') &&
-                                   (!this.settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP') &&
-                                   (!this.settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP') &&
-                                   (!this.settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP') &&
-                                   (!this.settings.USE_CONFLUENCE_FILTER_1M || pairToUpdate.trend === 'UP');
-        const isMacdConfirmed = !this.settings.USE_MACD_CONFIRMATION || (pairToUpdate.macd && pairToUpdate.macd.histogram > 0);
-        const isRsiOk = pairToUpdate.rsi > 50 && (!this.settings.USE_RSI_OVERBOUGHT_FILTER || pairToUpdate.rsi < this.settings.RSI_OVERBOUGHT_THRESHOLD);
 
-        const mlResult = this._calculateMlScore({
-            rsi: pairToUpdate.rsi, adx: pairToUpdate.adx, trend1m: pairToUpdate.trend, trend15m: pairToUpdate.trend_15m,
-            trend30m: pairToUpdate.trend_30m, trend1h: pairToUpdate.trend_1h, trend4h: pairToUpdate.trend_4h,
-            marketRegime: pairToUpdate.marketRegime, macdHistogram: pairToUpdate.macd.histogram,
-        });
-        pairToUpdate.ml_score = mlResult.score;
-        pairToUpdate.ml_prediction = mlResult.prediction;
+        // --- "SUPER FILTRE" LOGIC ---
+        // Step 1 (Macro) is pre-applied by ScannerService. Pairs here have already passed.
 
-        const isMlConfirmed = !this.settings.USE_ML_MODEL_FILTER || (mlResult.prediction === 'UP' && mlResult.score > 65);
-        const hasBaseBuyConditions = isMarketRegimeOk && isFullConfluenceOk && pairToUpdate.volatility >= this.settings.MIN_VOLATILITY_PCT && isVolumeConfirmed && isMacdConfirmed && isMlConfirmed;
-        
-        if (hasBaseBuyConditions && isRsiOk) {
-            score = (pairToUpdate.rsi > 50 && pairToUpdate.rsi < 70) ? 'STRONG BUY' : 'BUY';
+        // Step 2: Intermediate Filter (30m + 15m)
+        const isIntermediateOk = 
+            (!this.settings.USE_CONFLUENCE_FILTER_30M || (pairToUpdate.trend_30m === 'UP' && (pairToUpdate.rsi_30m || 0) > 50)) &&
+            (!this.settings.USE_CONFLUENCE_FILTER_15M || (pairToUpdate.trend_15m === 'UP' && (pairToUpdate.rsi_15m || 0) > 50));
+
+        if (isIntermediateOk) {
+            // Step 3: Micro Timing (1m)
+            const isRsiSweetSpot = pairToUpdate.rsi > 50 && pairToUpdate.rsi < 70;
+            const isMacdCrossUp = (pairToUpdate.prev_macd_histogram || 0) <= 0 && (pairToUpdate.macd?.histogram || 0) > 0;
+            const isGreenCandle = newKline.close > newKline.open;
+            const isVolumeConfirmed = !this.settings.USE_VOLUME_CONFIRMATION || (volumes.length >= 20 && newKline.volume > SMA.calculate({period: 20, values: volumes}).pop());
+            const isBreakout = newKline.close > Math.max(...highs.slice(-21, -1)); // Breakout of last 20 highs (excluding current)
+            const isAdxStrong = pairToUpdate.adx >= this.settings.ADX_MIN_THRESHOLD;
+            const isVolatilityOk = pairToUpdate.volatility >= this.settings.MIN_VOLATILITY_PCT;
+
+            if (isRsiSweetSpot && isMacdCrossUp && isGreenCandle && isVolumeConfirmed && isBreakout && isAdxStrong && isVolatilityOk) {
+                score = 'STRONG BUY';
+            }
         }
         
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
@@ -450,12 +464,8 @@ const runScannerLoop = async () => {
         for (const [symbol, discoveredPair] of discoveredMap.entries()) {
             const existingPair = currentCacheMap.get(symbol);
             if (existingPair) {
-                Object.assign(existingPair, {
-                    marketRegime: discoveredPair.marketRegime,
-                    volume: discoveredPair.volume,
-                    macd_4h: discoveredPair.macd_4h,
-                    trend_4h: discoveredPair.trend_4h,
-                });
+                // Preserve real-time data, update macro data
+                Object.assign(existingPair, discoveredPair);
                 mergedCache.push(existingPair);
             } else {
                 mergedCache.push(discoveredPair);
@@ -563,7 +573,7 @@ const tradingEngine = {
     openTrade: function(pair) {
         const { settings, balance } = botState;
         const currentPrice = priceFeeder.latestPrices.get(pair.symbol);
-        if (!currentPrice || !pair.atr) return;
+        if (!currentPrice || !(pair.atr_15m || pair.atr)) return;
 
         let sizePct = settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY' ? settings.STRONG_BUY_POSITION_SIZE_PCT : settings.POSITION_SIZE_PCT;
         const positionSizeUSD = balance * (sizePct / 100);
@@ -573,7 +583,9 @@ const tradingEngine = {
         
         if (balance < cost) return log('WARN', `Insufficient balance for ${pair.symbol}.`);
 
-        let stopLossPrice = settings.USE_ATR_STOP_LOSS ? entryPrice - (pair.atr * settings.ATR_MULTIPLIER) : entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
+        let stopLossPrice = settings.USE_ATR_STOP_LOSS 
+            ? entryPrice - ((pair.atr_15m || pair.atr) * settings.ATR_MULTIPLIER)
+            : entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
         const initialRiskUSD = (entryPrice - stopLossPrice) * quantity;
 
         botState.balance -= cost;

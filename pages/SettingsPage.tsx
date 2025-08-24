@@ -20,6 +20,8 @@ const tooltips: Record<string, string> = {
     SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
     MIN_VOLATILITY_PCT: "La volatilité de prix minimale qu'une paire doit avoir pour être considérée pour un trade. Évite d'entrer dans des trades sur des marchés plats et latéraux.",
+    RSI_MIN_THRESHOLD: "Le seuil RSI minimum requis pour valider un signal d'achat. Une valeur de 50 est standard, indiquant un momentum haussier.",
+    ADX_MIN_THRESHOLD: "Le seuil ADX minimum requis pour valider un signal d'achat. Une valeur de 25 est standard, indiquant une tendance forte.",
     COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
     COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
@@ -45,7 +47,7 @@ const tooltips: Record<string, string> = {
     USE_CONFLUENCE_FILTER_4H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 4 heures est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_1H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 heure est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_30M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 30 minutes est également en HAUSSE.",
-    USE_CONFLUENCE_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
+    USE_CONfluence_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
     USE_CONFLUENCE_FILTER_1M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 minute (le signal d'entrée) est également en HAUSSE.",
     USE_CORRELATION_FILTER: "(Fonctionnalité future) Empêcher l'ouverture de trades sur plusieurs paires fortement corrélées en même temps pour diversifier le risque.",
     USE_NEWS_FILTER: "(Fonctionnalité future) Mettre automatiquement en pause le bot lors d'événements d'actualité économique majeurs pour éviter une volatilité extrême."
@@ -245,6 +247,8 @@ const SettingsPage: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        {renderField('MIN_VOLUME_USD', "Volume Min (USD)")}
                        {renderField('MIN_VOLATILITY_PCT', "Volatilité Min (%)")}
+                       {renderField('RSI_MIN_THRESHOLD', "Seuil RSI Minimum")}
+                       {renderField('ADX_MIN_THRESHOLD', "Seuil ADX Minimum")}
                        {renderField('COINGECKO_SYNC_SECONDS', "Synchro Scanner (secondes)")}
                        {renderField('LOSS_COOLDOWN_HOURS', "Cooldown sur Perte (Heures)")}
                         <div className="md:col-span-2">
