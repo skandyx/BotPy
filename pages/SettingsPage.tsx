@@ -13,7 +13,7 @@ type ActiveProfile = ProfileName | 'PERSONNALISE';
 
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
     PRUDENT: {
-        // As per user checklist for "Safe Trades"
+        // As per user checklist for "Safe Trades" & "Pro-Mode" feedback
         POSITION_SIZE_PCT: 2.0,
         MAX_OPEN_POSITIONS: 3,
         STOP_LOSS_PCT: 2.0, // Fallback, ATR is primary
@@ -22,22 +22,21 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         ADX_MIN_THRESHOLD: 25,
         REQUIRE_STRONG_BUY: true,
         USE_MARKET_REGIME_FILTER: true,
-        // Confluence filters are implicitly handled by the new logic, but set for clarity
         USE_CONFLUENCE_FILTER_1M: true,
         USE_CONFLUENCE_FILTER_15M: true,
         USE_CONFLUENCE_FILTER_30M: true,
         USE_CONFLUENCE_FILTER_1H: true,
         USE_CONFLUENCE_FILTER_4H: true,
-        // --- Advanced Risk Management for this profile ---
+        // --- Advanced Risk Management for this profile (updated) ---
         USE_ATR_STOP_LOSS: true,
         ATR_MULTIPLIER: 1.5,
         USE_TRAILING_STOP_LOSS: true,
         USE_AUTO_BREAKEVEN: true,
-        BREAKEVEN_TRIGGER_PCT: 0.5,
+        BREAKEVEN_TRIGGER_PCT: 1.0,  // Increased from 0.5 to give trade room
         USE_PARTIAL_TAKE_PROFIT: true,
-        PARTIAL_TP_TRIGGER_PCT: 1.5,
+        PARTIAL_TP_TRIGGER_PCT: 0.8, // Secure gains faster as per user feedback
         PARTIAL_TP_SELL_QTY_PCT: 50,
-        RSI_OVERBOUGHT_THRESHOLD: 65, // Stricter for this profile
+        RSI_OVERBOUGHT_THRESHOLD: 60, // Stricter threshold to avoid FOMO entries
     },
     EQUILIBRE: {
         POSITION_SIZE_PCT: 3.0,

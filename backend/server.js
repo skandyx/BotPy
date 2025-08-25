@@ -158,7 +158,7 @@ const loadData = async () => {
             USE_CONFLUENCE_FILTER_15M: true,
             USE_CONFLUENCE_FILTER_30M: true,
             USE_CONFLUENCE_FILTER_1H: true,
-            USE_CONFLUENCE_FILTER_4H: true,
+            USE_CONfluence_FILTER_4H: true,
             USE_CORRELATION_FILTER: false,
             USE_NEWS_FILTER: false,
         };
@@ -315,18 +315,26 @@ class RealtimeAnalyzer {
 
         let score = 'HOLD';
 
-        // --- NEW "SAFE TRADES" CHECKLIST LOGIC ---
-        const is4hUp = pairToUpdate.trend_4h === 'UP';
-        const is1hUp = pairToUpdate.trend_1h === 'UP';
-        const isRsi15mOk = (pairToUpdate.rsi_15m || 0) >= 50 && (pairToUpdate.rsi_15m || 0) <= 65;
-        const isRsi30mOk = (pairToUpdate.rsi_30m || 0) >= 50 && (pairToUpdate.rsi_30m || 0) <= 65;
-        const isAdxOk = pairToUpdate.adx >= this.settings.ADX_MIN_THRESHOLD;
-        const isRsi1mSweetSpot = pairToUpdate.rsi > 50 && pairToUpdate.rsi < 70;
+        // --- REVISED "PRO-MODE" CHECKLIST LOGIC ---
+        const { settings } = this;
 
-        // All pre-conditions must be met
-        if (is4hUp && is1hUp && isRsi15mOk && isRsi30mOk && isAdxOk) {
-            // Final 1m trigger condition
-            if (isRsi1mSweetSpot) {
+        // 1. Check strict confluence based on settings
+        const isMarketRegimeOk = !settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
+        const is4hUp = !settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP';
+        const is1hUp = !settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP';
+        const is30mUp = !settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP';
+        const is15mUp = !settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP';
+
+        if (isMarketRegimeOk && is4hUp && is1hUp && is30mUp && is15mUp) {
+            // All timeframes are aligned. Now check entry conditions.
+            const isAdxOk = pairToUpdate.adx >= settings.ADX_MIN_THRESHOLD;
+            const isRsiSweetSpot = pairToUpdate.rsi >= settings.RSI_MIN_THRESHOLD && pairToUpdate.rsi <= settings.RSI_OVERBOUGHT_THRESHOLD;
+
+            // 2. "Anti-FOMO" Filter: Avoid entering if RSI is high on multiple timeframes.
+            const isFomoEntry = (pairToUpdate.rsi > 60) && ((pairToUpdate.rsi_15m || 0) > 60);
+
+            if (isAdxOk && isRsiSweetSpot && !isFomoEntry) {
+                // If all checks pass under this strict model, it's a high-quality signal.
                 score = 'STRONG BUY';
             }
         }
