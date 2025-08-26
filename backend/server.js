@@ -104,12 +104,45 @@ const log = (level, message) => {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SETTINGS_FILE_PATH = path.join(DATA_DIR, 'settings.json');
 const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
+const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
 const KLINE_DATA_DIR = path.join(DATA_DIR, 'klines');
 
 const ensureDataDirs = async () => {
     try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); }
     try { await fs.access(KLINE_DATA_DIR); } catch { await fs.mkdir(KLINE_DATA_DIR); }
 };
+
+// --- Auth Helpers ---
+const hashPassword = (password) => {
+    return new Promise((resolve, reject) => {
+        const salt = crypto.randomBytes(16).toString('hex');
+        crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+            if (err) reject(err);
+            resolve(salt + ":" + derivedKey.toString('hex'));
+        });
+    });
+};
+
+const verifyPassword = (password, hash) => {
+    return new Promise((resolve, reject) => {
+        const [salt, key] = hash.split(':');
+        if (!salt || !key) {
+            return reject(new Error('Invalid hash format.'));
+        }
+        crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+            if (err) reject(err);
+            try {
+                const keyBuffer = Buffer.from(key, 'hex');
+                const match = crypto.timingSafeEqual(keyBuffer, derivedKey);
+                resolve(match);
+            } catch (e) {
+                // Handle cases where the key is not valid hex, preventing crashes
+                resolve(false);
+            }
+        });
+    });
+};
+
 
 const loadData = async () => {
     await ensureDataDirs();
@@ -178,6 +211,27 @@ const loadData = async () => {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
+
+    try {
+        const authContent = await fs.readFile(AUTH_FILE_PATH, 'utf-8');
+        const authData = JSON.parse(authContent);
+        if (authData.passwordHash) {
+            botState.passwordHash = authData.passwordHash;
+        } else {
+            throw new Error("Invalid auth file format");
+        }
+    } catch {
+        log("WARN", "auth.json not found or invalid. Initializing from .env.");
+        const initialPassword = process.env.APP_PASSWORD;
+        if (!initialPassword) {
+            log('ERROR', 'CRITICAL: APP_PASSWORD is not set in .env file. Please set it and restart.');
+            process.exit(1);
+        }
+        botState.passwordHash = await hashPassword(initialPassword);
+        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
+        log('INFO', 'Created auth.json with a new secure password hash.');
+    }
+    
     realtimeAnalyzer.updateSettings(botState.settings);
 };
 
@@ -195,6 +249,8 @@ const saveData = async (type) => {
             tradingMode: botState.tradingMode,
         };
         await fs.writeFile(STATE_FILE_PATH, JSON.stringify(stateToPersist, null, 2));
+    } else if (type === 'auth') {
+        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
 };
 
@@ -358,6 +414,552 @@ class RealtimeAnalyzer {
 let botState = {
     settings: {}, balance: 10000, activePositions: [], tradeHistory: [],
     tradeIdCounter: 1, isRunning: true, tradingMode: 'VIRTUAL',
-    scannerCache: [], recentlyLostSymbols: new Map(),
+    scannerCache: [], recentlyLostSymbols: new Map(), passwordHash: '',
 };
-const scannerService = new ScannerService(log, KLINE_DATA_
+const scannerService = new ScannerService(log, KLINE_DATA_DIR);
+const realtimeAnalyzer = new RealtimeAnalyzer(log);
+let scannerInterval = null;
+let binanceWsClient = null;
+
+
+// --- Trading Engine ---
+const tradingEngine = {
+    async evaluateAndOpenTrade(pair) {
+        if (!botState.isRunning) return;
+        if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) return;
+        if (botState.activePositions.some(p => p.symbol === pair.symbol)) return;
+
+        const { settings } = botState;
+        const requiredScore = settings.REQUIRE_STRONG_BUY ? 'STRONG BUY' : 'BUY';
+        if (pair.score !== requiredScore && pair.score !== 'STRONG BUY') return;
+        
+        const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
+        if (cooldownInfo && Date.now() < cooldownInfo.until) {
+            log('TRADE', `Skipping trade for ${pair.symbol} due to recent loss cooldown.`);
+            return;
+        }
+
+        log('TRADE', `Valid trade signal found for ${pair.symbol} with score ${pair.score}. Opening position...`);
+        this.openPosition(pair);
+    },
+
+    async openPosition(pair) {
+        const { settings } = botState;
+        let positionSizePct = settings.POSITION_SIZE_PCT;
+        if (settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
+            positionSizePct = settings.STRONG_BUY_POSITION_SIZE_PCT;
+        }
+        const positionSizeUSD = botState.balance * (positionSizePct / 100);
+        const quantity = positionSizeUSD / pair.price;
+
+        // Calculate Stop Loss
+        let stopLossPrice;
+        if (settings.USE_ATR_STOP_LOSS && pair.atr_15m > 0) {
+            stopLossPrice = pair.price - (pair.atr_15m * settings.ATR_MULTIPLIER);
+        } else {
+            stopLossPrice = pair.price * (1 - settings.STOP_LOSS_PCT / 100);
+        }
+
+        const newTrade = {
+            id: botState.tradeIdCounter++,
+            mode: botState.tradingMode,
+            symbol: pair.symbol,
+            side: 'BUY',
+            entry_price: pair.price,
+            quantity,
+            initial_quantity: quantity,
+            stop_loss: stopLossPrice,
+            take_profit: pair.price * (1 + settings.TAKE_PROFIT_PCT / 100),
+            highest_price_since_entry: pair.price,
+            entry_time: new Date().toISOString(),
+            status: 'PENDING', // Will be FILLED once executed
+            pnl: 0,
+            pnl_pct: 0,
+            entry_snapshot: { ...pair } // Deep copy of the scanner state at entry
+        };
+        
+        // --- TODO: REAL TRADING LOGIC ---
+        // if (botState.tradingMode === 'REAL_LIVE') { ... call binance api ... }
+        // For now, we simulate instant fill
+        newTrade.status = 'FILLED';
+
+        botState.activePositions.push(newTrade);
+        log('TRADE', `Opened new ${botState.tradingMode} position for ${quantity.toFixed(4)} ${pair.symbol} @ $${pair.price}.`);
+        
+        broadcast({ type: 'POSITIONS_UPDATED' });
+        await saveData('state');
+    },
+
+    monitorPositions(priceUpdate) {
+        if (!botState.isRunning) return;
+        botState.activePositions.forEach(pos => {
+            if (pos.symbol === priceUpdate.symbol) {
+                const currentPrice = priceUpdate.price;
+                pos.highest_price_since_entry = Math.max(pos.highest_price_since_entry, currentPrice);
+
+                const pnl = (currentPrice - pos.entry_price) * pos.quantity;
+                const pnl_pct = (pnl / (pos.entry_price * pos.quantity)) * 100;
+
+                // --- Risk Management Logic ---
+                // 1. Trailing Stop Loss
+                if (botState.settings.USE_TRAILING_STOP_LOSS) {
+                    const trailingStopPrice = pos.highest_price_since_entry * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
+                    pos.stop_loss = Math.max(pos.stop_loss, trailingStopPrice);
+                }
+
+                // 2. Auto Break-even
+                if (botState.settings.USE_AUTO_BREAKEVEN && !pos.is_at_breakeven && pnl_pct >= botState.settings.BREAKEVEN_TRIGGER_PCT) {
+                    pos.stop_loss = pos.entry_price;
+                    pos.is_at_breakeven = true;
+                    log('TRADE', `Moved Stop Loss to break-even for ${pos.symbol}.`);
+                }
+
+                // --- Exit Condition Checks ---
+                if (currentPrice <= pos.stop_loss) {
+                    log('TRADE', `${pos.symbol} hit Stop Loss at $${currentPrice}. Closing position.`);
+                    this.closePosition(pos.id, currentPrice, 'STOP_LOSS');
+                } else if (currentPrice >= pos.take_profit) {
+                    log('TRADE', `${pos.symbol} hit Take Profit at $${currentPrice}. Closing position.`);
+                    this.closePosition(pos.id, currentPrice, 'TAKE_PROFIT');
+                }
+            }
+        });
+    },
+
+    async closePosition(tradeId, exitPrice, reason = 'MANUAL') {
+        const tradeIndex = botState.activePositions.findIndex(p => p.id === tradeId);
+        if (tradeIndex === -1) return null;
+        
+        const trade = botState.activePositions[tradeIndex];
+        const pnl = (exitPrice - trade.entry_price) * trade.quantity;
+
+        const closedTrade = {
+            ...trade,
+            exit_price: exitPrice,
+            exit_time: new Date().toISOString(),
+            status: 'CLOSED',
+            pnl,
+            pnl_pct: (pnl / (trade.entry_price * trade.quantity)) * 100
+        };
+
+        botState.balance += pnl;
+        botState.tradeHistory.push(closedTrade);
+        botState.activePositions.splice(tradeIndex, 1);
+
+        if (pnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
+            const cooldownUntil = Date.now() + botState.settings.LOSS_COOLDOWN_HOURS * 60 * 60 * 1000;
+            botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
+            log('TRADE', `[COOLDOWN] ${trade.symbol} is on cooldown until ${new Date(cooldownUntil).toLocaleTimeString()}`);
+        }
+        
+        log('TRADE', `Closed position for ${trade.symbol}. Reason: ${reason}. PnL: $${pnl.toFixed(2)}.`);
+        
+        broadcast({ type: 'POSITIONS_UPDATED' });
+        await saveData('state');
+        return closedTrade;
+    }
+};
+
+// --- Binance WebSocket Client for Price and Kline Streams ---
+class BinanceWsClient {
+    constructor(log, onKline, onPrice) {
+        this.log = log;
+        this.baseUrl = 'wss://stream.binance.com:9443/stream?streams=';
+        this.ws = null;
+        this.subscriptions = new Set();
+        this.onKline = onKline;
+        this.onPrice = onPrice;
+    }
+
+    connect(symbols) {
+        if (this.ws) {
+            this.log('BINANCE_WS', 'Already connected. Attempting to update subscriptions...');
+            this.updateSubscriptions(symbols);
+            return;
+        }
+        if (symbols.length === 0) {
+             this.log('BINANCE_WS', 'No symbols to monitor. Skipping connection.');
+             return;
+        }
+
+        const streams = [];
+        const timeframes = ['1m', '15m', '30m'];
+        symbols.forEach(s => {
+            streams.push(`${s.toLowerCase()}@aggTrade`); // Realtime price
+            timeframes.forEach(tf => streams.push(`${s.toLowerCase()}@kline_${tf}`));
+        });
+
+        const url = this.baseUrl + streams.join('/');
+        this.log('BINANCE_WS', `Connecting to Binance stream with ${streams.length} streams...`);
+        this.ws = new WebSocket(url);
+
+        this.ws.on('open', () => {
+            this.log('BINANCE_WS', 'Successfully connected to Binance WebSocket stream.');
+            this.subscriptions = new Set(streams);
+        });
+        this.ws.on('message', (data) => {
+            try {
+                const message = JSON.parse(data);
+                if (message.stream.includes('@kline')) {
+                    if (message.data.k.x) { // k.x is true if the kline is closed
+                        const interval = message.data.k.i;
+                        this.onKline(message.data, interval);
+                    }
+                } else if (message.stream.includes('@aggTrade')) {
+                    this.onPrice({ symbol: message.data.s, price: parseFloat(message.data.p) });
+                }
+            } catch (error) {
+                this.log('ERROR', `Failed to process Binance WS message: ${error.message}`);
+            }
+        });
+        this.ws.on('close', () => {
+            this.log('WARN', 'Binance WebSocket disconnected. Will reconnect on next cycle.');
+            this.ws = null;
+            this.subscriptions.clear();
+        });
+        this.ws.on('error', (err) => {
+            this.log('ERROR', `Binance WebSocket error: ${err.message}`);
+        });
+    }
+    
+    updateSubscriptions(newSymbols) {
+        const newStreams = new Set();
+        const timeframes = ['1m', '15m', '30m'];
+        newSymbols.forEach(s => {
+            newStreams.add(`${s.toLowerCase()}@aggTrade`);
+            timeframes.forEach(tf => newStreams.add(`${s.toLowerCase()}@kline_${tf}`));
+        });
+        
+        const streamsToAdd = [...newStreams].filter(s => !this.subscriptions.has(s));
+        const streamsToRemove = [...this.subscriptions].filter(s => !newStreams.has(s));
+
+        if (streamsToAdd.length === 0 && streamsToRemove.length === 0) return;
+
+        this.log('BINANCE_WS', `Updating subscriptions: Adding ${streamsToAdd.length}, Removing ${streamsToRemove.length}`);
+        
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+             if (streamsToRemove.length > 0) {
+                this.ws.send(JSON.stringify({ method: 'UNSUBSCRIBE', params: streamsToRemove, id: 2 }));
+             }
+             if (streamsToAdd.length > 0) {
+                 this.ws.send(JSON.stringify({ method: 'SUBSCRIBE', params: streamsToAdd, id: 1 }));
+             }
+            this.subscriptions = newStreams;
+        } else {
+             this.log('WARN', 'Cannot update subscriptions, WS not connected. Re-connecting with new symbols.');
+             this.disconnect();
+             this.connect(newSymbols);
+        }
+    }
+
+    disconnect() {
+        if (this.ws) {
+            this.log('BINANCE_WS', 'Disconnecting from Binance WebSocket stream.');
+            this.ws.close();
+            this.ws = null;
+            this.subscriptions.clear();
+        }
+    }
+}
+
+
+// --- Main Application Logic ---
+const runScannerCycle = async () => {
+    try {
+        const analyzedPairs = await scannerService.runScan(botState.settings);
+        
+        const oldSymbols = new Set(botState.scannerCache.map(p => p.symbol));
+        const newSymbols = new Set(analyzedPairs.map(p => p.symbol));
+
+        // Update cache
+        botState.scannerCache = analyzedPairs;
+
+        // Hydrate kline data for newly discovered pairs
+        analyzedPairs.forEach(p => {
+             if (!oldSymbols.has(p.symbol)) {
+                 realtimeAnalyzer.hydrateSymbol(p.symbol);
+             }
+        });
+
+        // Update WebSocket subscriptions if the list of monitored pairs has changed
+        if (binanceWsClient) {
+            binanceWsClient.connect(Array.from(newSymbols));
+        } else {
+            binanceWsClient = new BinanceWsClient(log, realtimeAnalyzer.handleKline.bind(realtimeAnalyzer), tradingEngine.monitorPositions.bind(tradingEngine));
+            binanceWsClient.connect(Array.from(newSymbols));
+        }
+        
+    } catch (error) {
+        log('ERROR', `Scanner cycle failed: ${error.message}`);
+    } finally {
+        const syncTime = (botState.settings.COINGECKO_SYNC_SECONDS || 60) * 1000;
+        scannerInterval = setTimeout(runScannerCycle, syncTime);
+    }
+};
+
+const startBot = () => {
+    if (scannerInterval) clearTimeout(scannerInterval);
+    log('INFO', 'Bot started. Running initial scanner cycle...');
+    runScannerCycle();
+    botState.isRunning = true;
+    saveData('state');
+    broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: true } });
+};
+
+const stopBot = () => {
+    if (scannerInterval) {
+        clearTimeout(scannerInterval);
+        scannerInterval = null;
+    }
+    if (binanceWsClient) {
+        binanceWsClient.disconnect();
+        binanceWsClient = null;
+    }
+    log('INFO', 'Bot stopped.');
+    botState.isRunning = false;
+    saveData('state');
+    broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: false } });
+};
+
+
+// --- API Routes ---
+// --- Auth Middleware ---
+const isAuthenticated = (req, res, next) => {
+    if (req.session.isAuthenticated) {
+        return next();
+    }
+    res.status(401).json({ message: 'Unauthorized: Please log in.' });
+};
+
+// --- PUBLIC AUTH ROUTES ---
+app.post('/api/login', async (req, res) => {
+    const { password } = req.body;
+    if (!password) {
+        return res.status(400).json({ success: false, message: 'Password is required.' });
+    }
+    try {
+        const isValid = await verifyPassword(password, botState.passwordHash);
+        if (isValid) {
+            req.session.isAuthenticated = true;
+            log('INFO', 'User successfully authenticated.');
+            res.json({ success: true, message: 'Login successful.' });
+        } else {
+            log('WARN', 'Failed login attempt.');
+            res.status(401).json({ success: false, message: 'Invalid password.' });
+        }
+    } catch (error) {
+        log('ERROR', `Login process failed: ${error.message}`);
+        res.status(500).json({ success: false, message: 'Internal server error during authentication.' });
+    }
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) {
+            log('ERROR', `Failed to destroy session: ${err.message}`);
+            return res.status(500).send('Could not log out.');
+        }
+        res.status(204).send();
+    });
+});
+
+app.get('/api/check-session', (req, res) => {
+    res.json({ isAuthenticated: !!req.session.isAuthenticated });
+});
+
+// --- PROTECTED ROUTES ---
+app.post('/api/change-password', isAuthenticated, async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    }
+    try {
+        botState.passwordHash = await hashPassword(newPassword);
+        await saveData('auth');
+        log('INFO', 'Password has been updated successfully.');
+        res.json({ success: true, message: 'Password updated successfully.' });
+    } catch (error) {
+        log('ERROR', `Failed to change password: ${error.message}`);
+        res.status(500).json({ success: false, message: 'Internal server error.' });
+    }
+});
+
+// Settings
+app.get('/api/settings', isAuthenticated, async (req, res) => {
+    res.json(botState.settings);
+});
+
+app.post('/api/settings', isAuthenticated, async (req, res) => {
+    botState.settings = { ...botState.settings, ...req.body };
+    realtimeAnalyzer.updateSettings(botState.settings);
+    await saveData('settings');
+    log('INFO', 'Bot settings updated.');
+    res.json({ success: true });
+});
+
+// Data
+app.get('/api/status', isAuthenticated, (req, res) => {
+    res.json({
+        mode: botState.tradingMode,
+        balance: botState.balance,
+        positions: botState.activePositions.length,
+        monitored_pairs: botState.scannerCache.length,
+        top_pairs: botState.scannerCache.slice(0, 10).map(p => p.symbol),
+        max_open_positions: botState.settings.MAX_OPEN_POSITIONS,
+    });
+});
+
+app.get('/api/positions', isAuthenticated, (req, res) => {
+    res.json(botState.activePositions);
+});
+
+app.get('/api/history', isAuthenticated, (req, res) => {
+    res.json(botState.tradeHistory);
+});
+
+app.get('/api/performance-stats', isAuthenticated, (req, res) => {
+    const total_trades = botState.tradeHistory.length;
+    const winning_trades = botState.tradeHistory.filter(t => t.pnl > 0).length;
+    const losing_trades = total_trades - winning_trades;
+    const total_pnl = botState.tradeHistory.reduce((sum, t) => sum + t.pnl, 0);
+    const total_pnl_pct = botState.tradeHistory.reduce((sum, t) => sum + t.pnl_pct, 0);
+    
+    res.json({
+        total_trades,
+        winning_trades,
+        losing_trades,
+        total_pnl,
+        avg_pnl_pct: total_trades > 0 ? total_pnl_pct / total_trades : 0,
+        win_rate: total_trades > 0 ? (winning_trades / total_trades) * 100 : 0,
+    });
+});
+
+app.get('/api/scanner', isAuthenticated, (req, res) => {
+    res.json(botState.scannerCache);
+});
+
+// Actions
+app.post('/api/open-trade', isAuthenticated, async (req, res) => {
+    const { symbol, price, mode } = req.body; // For manual trades if needed
+    // This endpoint is less used now that the engine is automated, but good to have
+    const pairData = botState.scannerCache.find(p => p.symbol === symbol);
+    if (pairData) {
+        await tradingEngine.openPosition(pairData);
+        res.status(200).json({ success: true });
+    } else {
+        res.status(404).json({ success: false, message: "Pair not found in scanner cache." });
+    }
+});
+
+app.post('/api/close-trade/:tradeId', isAuthenticated, async (req, res) => {
+    const tradeId = parseInt(req.params.tradeId, 10);
+    const trade = botState.activePositions.find(p => p.id === tradeId);
+    if (!trade) return res.status(404).json({ message: "Trade not found" });
+
+    // Fetch current price to close
+    try {
+        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${trade.symbol}`);
+        const data = await response.json();
+        const exitPrice = parseFloat(data.price);
+        const closedTrade = await tradingEngine.closePosition(tradeId, exitPrice);
+        res.json(closedTrade);
+    } catch (e) {
+        res.status(500).json({ message: "Could not fetch current price to close trade." });
+    }
+});
+
+app.post('/api/clear-data', isAuthenticated, async (req, res) => {
+    botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
+    botState.activePositions = [];
+    botState.tradeHistory = [];
+    botState.tradeIdCounter = 1;
+    await saveData('state');
+    log('WARN', 'All trade data has been cleared.');
+    res.json({ success: true });
+});
+
+app.post('/api/test-connection', isAuthenticated, async (req, res) => {
+    const { apiKey, secretKey } = req.body; // In a real app, use the saved ones
+    // NOTE: A proper test would make a signed API call. This is a basic check.
+    try {
+        const response = await fetch('https://api.binance.com/api/v3/ping');
+        if (response.ok) {
+            res.json({ success: true, message: 'Binance API connection successful.' });
+        } else {
+            res.status(response.status).json({ success: false, message: 'Binance API connection failed.' });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, message: 'Connection test failed.' });
+    }
+});
+
+app.post('/api/test-coingecko', isAuthenticated, async (req, res) => {
+    const { apiKey } = req.body;
+    const url = apiKey 
+        ? `https://api.coingecko.com/api/v3/ping?x_cg_demo_api_key=${apiKey}`
+        : 'https://api.coingecko.com/api/v3/ping';
+    try {
+        const response = await fetch(url);
+        if (response.ok) {
+            res.json({ success: true, message: 'CoinGecko API connection successful.' });
+        } else {
+            const data = await response.text();
+            res.status(response.status).json({ success: false, message: `CoinGecko API connection failed: ${data}` });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, message: `Connection test failed: ${e.message}` });
+    }
+});
+
+// Bot Control
+app.get('/api/bot/status', isAuthenticated, (req, res) => {
+    res.json({ isRunning: botState.isRunning });
+});
+app.post('/api/bot/start', isAuthenticated, (req, res) => {
+    if (!botState.isRunning) {
+        startBot();
+    }
+    res.json({ success: true });
+});
+app.post('/api/bot/stop', isAuthenticated, (req, res) => {
+    if (botState.isRunning) {
+        stopBot();
+    }
+    res.json({ success: true });
+});
+
+app.get('/api/mode', isAuthenticated, (req, res) => {
+    res.json({ mode: botState.tradingMode });
+});
+app.post('/api/mode', isAuthenticated, async (req, res) => {
+    const { mode } = req.body;
+    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
+        if (botState.activePositions.length > 0) {
+            return res.status(400).json({ success: false, message: 'Cannot change mode with active positions.' });
+        }
+        botState.tradingMode = mode;
+        await saveData('state');
+        log('INFO', `Trading mode changed to ${mode}`);
+        res.json({ success: true, mode });
+    } else {
+        res.status(400).json({ success: false, message: 'Invalid mode specified.' });
+    }
+});
+
+// --- Static File Serving ---
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname, '..', 'dist')));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+});
+
+// --- Start Server ---
+(async () => {
+    await loadData();
+    if (botState.isRunning) {
+        startBot();
+    }
+    server.listen(port, () => {
+        log('INFO', `Server is running on http://localhost:${port}`);
+    });
+})();

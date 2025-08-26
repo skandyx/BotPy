@@ -83,8 +83,16 @@ const ScannerPage: React.FC = () => {
     let sortablePairs = [...pairs];
     if (sortConfig !== null) {
       sortablePairs.sort((a, b) => {
-        const aVal = a[sortConfig.key];
-        const bVal = b[sortConfig.key];
+        let aVal, bVal;
+        
+        // Special handling for sorting by MACD histogram which is nested
+        if (sortConfig.key === 'macd') {
+            aVal = a.macd?.histogram;
+            bVal = b.macd?.histogram;
+        } else {
+            aVal = a[sortConfig.key];
+            bVal = b[sortConfig.key];
+        }
 
         if (aVal === undefined || aVal === null) return 1;
         if (bVal === undefined || bVal === null) return -1;
@@ -140,7 +148,7 @@ const ScannerPage: React.FC = () => {
 
   const totalColumnCount = useMemo(() => {
     if (!settings) return 10;
-    let count = 8; // Symbole, Prix, Score, Volume, Volatilité, RSI, ADX
+    let count = 9; // Symbole, Prix, Score, Volume, Volatilité, RSI, ADX, MACD Hist
     if (settings.USE_ML_MODEL_FILTER) count += 2;
     if (settings.USE_CONFLUENCE_FILTER_1M) count++;
     if (settings.USE_CONFLUENCE_FILTER_15M) count++;
@@ -176,16 +184,19 @@ const ScannerPage: React.FC = () => {
                         {settings.USE_CONFLUENCE_FILTER_1H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>}
                         {settings.USE_CONFLUENCE_FILTER_4H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>}
                         {settings.USE_MARKET_REGIME_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>}
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI (1m)</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="macd">MACD Hist (1m)</SortableHeader>
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {sortedPairs.length > 0 ? (
                         sortedPairs.map(pair => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
-                            const rsiClass = pair.rsi > 70 ? 'text-yellow-400' : (pair.rsi < 30 ? 'text-purple-400' : 'text-gray-300');
+                            const rsiClass = pair.rsi > 70 ? 'text-green-400' : (pair.rsi < 30 ? 'text-red-400' : 'text-gray-300');
                             const adxClass = pair.adx > 25 ? 'text-blue-400 font-bold' : 'text-gray-300';
+                            const macdHist = pair.macd?.histogram;
+                            const macdClass = macdHist !== undefined && macdHist > 0 ? 'text-blue-400 font-bold' : 'text-gray-400';
                             
                             return (
                                 <tr key={pair.symbol}>
@@ -208,6 +219,9 @@ const ScannerPage: React.FC = () => {
                                     {settings.USE_MARKET_REGIME_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>}
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono ${macdClass}`}>
+                                        {macdHist?.toFixed(5) || 'N/A'}
+                                    </td>
                                 </tr>
                             )
                         })
