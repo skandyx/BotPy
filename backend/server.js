@@ -560,6 +560,19 @@ const tradingEngine = {
     }
 };
 
+// --- Combined handler for Price Updates ---
+const handlePriceUpdate = (priceUpdate) => {
+    // 1. Monitor active positions for exits/risk management
+    tradingEngine.monitorPositions(priceUpdate);
+
+    // 2. Broadcast the price update to all connected frontend clients
+    broadcast({
+        type: 'PRICE_UPDATE',
+        payload: priceUpdate
+    });
+};
+
+
 // --- Binance WebSocket Client for Price and Kline Streams ---
 class BinanceWsClient {
     constructor(log, onKline, onPrice) {
@@ -685,7 +698,7 @@ const runScannerCycle = async () => {
         if (binanceWsClient) {
             binanceWsClient.connect(Array.from(newSymbols));
         } else {
-            binanceWsClient = new BinanceWsClient(log, realtimeAnalyzer.handleKline.bind(realtimeAnalyzer), tradingEngine.monitorPositions.bind(tradingEngine));
+            binanceWsClient = new BinanceWsClient(log, realtimeAnalyzer.handleKline.bind(realtimeAnalyzer), handlePriceUpdate);
             binanceWsClient.connect(Array.from(newSymbols));
         }
         
