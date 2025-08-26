@@ -9,6 +9,7 @@ import Modal from '../components/common/Modal';
 import { useAppContext } from '../contexts/AppContext';
 import { useBotState } from '../contexts/BotStateContext';
 import { positionService } from '../services/positionService';
+import TradingViewWidget from '../components/common/TradingViewWidget';
 
 const formatPrice = (price: number | undefined | null): string => {
     if (price === undefined || price === null) return 'N/A';
@@ -39,7 +40,7 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     }
 };
 
-const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void }> = ({ positions, onManualClose }) => {
+const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void }> = ({ positions, onManualClose, onSymbolClick }) => {
     const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
     const getPnlClass = (pnl: number = 0) => {
         if (pnl > 0) return 'text-green-400';
@@ -69,7 +70,11 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                         const priceClass = pos.priceDirection === 'up' ? 'text-green-400' : (pos.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                         const snapshot = pos.entry_snapshot;
                         return (
-                            <tr key={pos.id}>
+                            <tr 
+                                key={pos.id}
+                                onClick={() => onSymbolClick(pos.symbol)}
+                                className="hover:bg-[#2b2f38]/50 cursor-pointer transition-colors"
+                            >
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pos.symbol}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(pos.side)}`}>{pos.side}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(pos.entry_price)}</td>
@@ -88,7 +93,10 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi?.toFixed(1) || 'N/A'}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <button
-                                        onClick={() => onManualClose(pos)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onManualClose(pos);
+                                        }}
                                         className="text-red-500 hover:text-red-700 transition-colors"
                                         title="Fermer la position manuellement"
                                     >
@@ -118,6 +126,7 @@ const DashboardPage: React.FC = () => {
     const [tradeToClose, setTradeToClose] = useState<Trade | null>(null);
     const { tradeActivityCounter } = useAppContext();
     const { tradingMode } = useBotState();
+    const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
     const openCloseModal = (trade: Trade) => {
         setTradeToClose(trade);
@@ -251,6 +260,22 @@ const DashboardPage: React.FC = () => {
                 <StatCard title="Paires Suivies" value={status.monitored_pairs} subtitle={`Volume > $${(settings.MIN_VOLUME_USD / 1000000).toFixed(0)}M`} />
             </div>
 
+            {selectedSymbol && (
+                <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg relative">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-white">Graphique : {selectedSymbol}</h3>
+                        <button 
+                            onClick={() => setSelectedSymbol(null)} 
+                            className="text-gray-400 hover:text-white text-2xl leading-none absolute top-3 right-4 z-10"
+                            aria-label="Fermer le graphique"
+                        >
+                           &times;
+                        </button>
+                    </div>
+                    <TradingViewWidget symbol={selectedSymbol} />
+                </div>
+            )}
+
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-4">Performance</h3>
                     <ResponsiveContainer width="100%" height={250}>
@@ -272,14 +297,20 @@ const DashboardPage: React.FC = () => {
 
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-4">Positions Actives</h3>
-                <ActivePositionsTable positions={positions} onManualClose={openCloseModal} />
+                <ActivePositionsTable positions={positions} onManualClose={openCloseModal} onSymbolClick={setSelectedSymbol} />
             </div>
             
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg">
                  <h3 className="text-lg font-semibold text-white mb-4">Top Paires Suivies</h3>
                  <div className="flex flex-wrap gap-2">
                      {status.top_pairs.map(pair => (
-                         <span key={pair} className="bg-gray-700 text-yellow-300 text-xs font-medium px-2.5 py-1 rounded-full">{pair}</span>
+                         <button
+                            key={pair}
+                            onClick={() => setSelectedSymbol(pair)}
+                            className="bg-gray-700 text-yellow-300 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-gray-600 transition-colors"
+                         >
+                            {pair}
+                         </button>
                      ))}
                  </div>
             </div>
