@@ -158,7 +158,7 @@ const loadData = async () => {
             USE_CONFLUENCE_FILTER_15M: true,
             USE_CONFLUENCE_FILTER_30M: true,
             USE_CONFLUENCE_FILTER_1H: true,
-            USE_CONfluence_FILTER_4H: true,
+            USE_CONFLUENCE_FILTER_4H: true,
             USE_CORRELATION_FILTER: false,
             USE_NEWS_FILTER: false,
         };
@@ -297,50 +297,53 @@ class RealtimeAnalyzer {
         // --- 1M ANALYSIS AND SCORING ---
         if (closes.length < 26) return; // Need enough data for all indicators
         
-        // --- Volatility Calculation (FIX) ---
         const lookbackPeriod = 20;
         if (intervalKlines.length >= lookbackPeriod) {
             const recentKlines = intervalKlines.slice(-lookbackPeriod);
             const highestHigh = Math.max(...recentKlines.map(k => k.high));
             const lowestLow = Math.min(...recentKlines.map(k => k.low));
-            if (lowestLow > 0) {
-                pairToUpdate.volatility = ((highestHigh - lowestLow) / lowestLow) * 100;
-            } else {
-                pairToUpdate.volatility = 0;
-            }
+            pairToUpdate.volatility = lowestLow > 0 ? ((highestHigh - lowestLow) / lowestLow) * 100 : 0;
         }
 
         pairToUpdate.rsi = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
         pairToUpdate.adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 20;
+        
+        const macdOutput = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }).pop();
+        if (macdOutput) {
+            pairToUpdate.macd = { MACD: macdOutput.MACD, signal: macdOutput.signal, histogram: macdOutput.histogram };
+        }
 
         let score = 'HOLD';
-
-        // --- REVISED "PRO-MODE" CHECKLIST LOGIC ---
         const { settings } = this;
 
-        // 1. Check strict confluence based on settings
-        const isMarketRegimeOk = !settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
-        const is4hUp = !settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP';
-        const is1hUp = !settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP';
-        const is30mUp = !settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP';
-        const is15mUp = !settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP';
+        // --- Gatekeeper Checks ---
+        const check1_MarketRegime = !settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
+        const check2_Confluence = (
+            (!settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP') &&
+            (!settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP') &&
+            (!settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP') &&
+            (!settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP') &&
+            (!settings.USE_CONFLUENCE_FILTER_1M || pairToUpdate.trend === 'UP')
+        );
+        const check3_Volatility = pairToUpdate.volatility >= settings.MIN_VOLATILITY_PCT;
+        const check4_Adx = pairToUpdate.adx >= settings.ADX_MIN_THRESHOLD;
+        const check5_RsiRange = pairToUpdate.rsi >= settings.RSI_MIN_THRESHOLD && (!settings.USE_RSI_OVERBOUGHT_FILTER || pairToUpdate.rsi <= settings.RSI_OVERBOUGHT_THRESHOLD);
+        const check6_Macd = !settings.USE_MACD_CONFIRMATION || (pairToUpdate.macd && pairToUpdate.macd.histogram > 0);
+        const avgVolume = intervalKlines.length > 1 ? intervalKlines.slice(-20, -1).reduce((sum, k) => sum + k.volume, 0) / 19 : 0;
+        const check7_Volume = !settings.USE_VOLUME_CONFIRMATION || (avgVolume > 0 && newKline.volume > avgVolume);
 
-        if (isMarketRegimeOk && is4hUp && is1hUp && is30mUp && is15mUp) {
-            // All timeframes are aligned. Now check entry conditions.
-            const isAdxOk = pairToUpdate.adx >= settings.ADX_MIN_THRESHOLD;
-            const isRsiSweetSpot = pairToUpdate.rsi >= settings.RSI_MIN_THRESHOLD && pairToUpdate.rsi <= settings.RSI_OVERBOUGHT_THRESHOLD;
+        if (check1_MarketRegime && check2_Confluence && check3_Volatility && check4_Adx && check5_RsiRange && check6_Macd && check7_Volume) {
+            score = 'BUY';
 
-            // 2. "Anti-FOMO" Filter: Avoid entering if RSI is high on multiple timeframes.
-            const isFomoEntry = (pairToUpdate.rsi > 60) && ((pairToUpdate.rsi_15m || 0) > 60);
-
-            if (isAdxOk && isRsiSweetSpot && !isFomoEntry) {
-                // If all checks pass under this strict model, it's a high-quality signal.
+            const isAdxStrong = pairToUpdate.adx > (settings.ADX_MIN_THRESHOLD + 5);
+            const isRsiIdeal = pairToUpdate.rsi < (settings.RSI_OVERBOUGHT_THRESHOLD - 5);
+            if (isAdxStrong && isRsiIdeal) {
                 score = 'STRONG BUY';
             }
         }
         
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
-        if (score === 'STRONG BUY' && cooldownInfo && Date.now() < cooldownInfo.until) {
+        if ((score === 'BUY' || score === 'STRONG BUY') && cooldownInfo && Date.now() < cooldownInfo.until) {
             score = 'COOLDOWN';
         }
 
@@ -357,386 +360,4 @@ let botState = {
     tradeIdCounter: 1, isRunning: true, tradingMode: 'VIRTUAL',
     scannerCache: [], recentlyLostSymbols: new Map(),
 };
-const scannerService = new ScannerService(log, KLINE_DATA_DIR);
-const realtimeAnalyzer = new RealtimeAnalyzer(log);
-
-const createBinanceFeeder = (id, streamBuilder) => ({
-    ws: null, id, subscribedSymbols: new Set(),
-    connect: function() {
-        if (this.ws) { this.ws.removeAllListeners(); this.ws.close(); }
-        if (this.subscribedSymbols.size === 0) return;
-        const streams = Array.from(this.subscribedSymbols).map(streamBuilder).join('/');
-        const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
-        this.ws = new WebSocket(url);
-        this.ws.on('open', () => log("BINANCE_WS", `[${this.id}] Connected for ${this.subscribedSymbols.size} symbols.`));
-        this.ws.on('message', this.handleMessage.bind(this));
-        this.ws.on('close', () => { if (this.subscribedSymbols.size > 0) setTimeout(() => this.connect(), 5000); });
-        this.ws.on('error', (err) => log('ERROR', `[${this.id}] Error: ${err.message}`));
-    },
-    updateSubscriptions: function(newSymbols) {
-        const newSet = new Set(newSymbols);
-        if (newSet.size === this.subscribedSymbols.size && [...newSet].every(symbol => this.subscribedSymbols.has(symbol))) return;
-        this.subscribedSymbols = newSet;
-        if (newSet.size === 0 && this.ws) this.ws.close(); else this.connect();
-    },
-});
-
-const priceFeeder = {
-    ...createBinanceFeeder('PriceTicker', (s) => `${s.toLowerCase()}@miniTicker`),
-    latestPrices: new Map(),
-    handleMessage: function(data) {
-        const message = JSON.parse(data.toString());
-        if (message.data?.e === '24hrMiniTicker') {
-            const { s: symbol, c: priceStr } = message.data;
-            const price = parseFloat(priceStr);
-            this.latestPrices.set(symbol, price);
-            broadcast({ type: 'PRICE_UPDATE', payload: { symbol, price } });
-        }
-    }
-};
-
-const createKlineFeeder = (interval) => ({
-    ...createBinanceFeeder(`KlineFeeder_${interval}`, (s) => `${s.toLowerCase()}@kline_${interval}`),
-    handleMessage: async function(data) {
-        const message = JSON.parse(data.toString());
-        if (message.data?.e === 'kline' && message.data.k.x) {
-            await realtimeAnalyzer.handleKline(message.data, interval);
-        }
-    }
-});
-
-const allKlineFeeders = ['1m', '15m', '30m', '1h', '4h'].map(createKlineFeeder);
-
-
-// --- Main Scanner Loop ---
-const runScannerLoop = async () => {
-    log("SCANNER", "Starting new market discovery cycle...");
-    try {
-        const discoveredPairs = await scannerService.runScan(botState.settings);
-        const discoveredMap = new Map(discoveredPairs.map(p => [p.symbol, p]));
-        const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
-        const mergedCache = [];
-
-        for (const [symbol, discoveredPair] of discoveredMap.entries()) {
-            const existingPair = currentCacheMap.get(symbol);
-            if (existingPair) {
-                // Preserve real-time data, update macro data
-                Object.assign(existingPair, discoveredPair);
-                mergedCache.push(existingPair);
-            } else {
-                mergedCache.push(discoveredPair);
-            }
-        }
-        
-        botState.scannerCache = mergedCache.filter(p => discoveredMap.has(p.symbol));
-        log("SCANNER", `Discovery finished. Now monitoring ${botState.scannerCache.length} pairs in real-time.`);
-
-        for (const pair of botState.scannerCache) {
-            if (!realtimeAnalyzer.klineData.has(pair.symbol)) {
-                realtimeAnalyzer.hydrateSymbol(pair.symbol);
-            }
-        }
-
-        const symbolsToWatch = new Set([...botState.scannerCache.map(p => p.symbol), ...botState.activePositions.map(p => p.symbol)]);
-        const symbolsArray = Array.from(symbolsToWatch);
-        priceFeeder.updateSubscriptions(symbolsArray);
-        allKlineFeeders.forEach(feeder => feeder.updateSubscriptions(symbolsArray));
-
-    } catch (error) {
-        log("ERROR", `Error during discovery run: ${error.message}.`);
-    }
-};
-
-// --- Trading Engine ---
-const tradingEngine = {
-    interval: null,
-    start: function() {
-        if (this.interval) return;
-        log('TRADE', 'Trading Engine starting...');
-        botState.isRunning = true;
-        this.interval = setInterval(this.tick.bind(this), 5000);
-        saveData('state');
-        broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: true } });
-    },
-    stop: function() {
-        if (!this.interval) return;
-        log('TRADE', 'Trading Engine stopping...');
-        clearInterval(this.interval);
-        this.interval = null;
-        botState.isRunning = false;
-        saveData('state');
-        broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: false } });
-    },
-    tick: async function() {
-        if (!botState.isRunning) return;
-        let positionsWereUpdated = false;
-
-        for (const position of [...botState.activePositions]) {
-            const currentPrice = priceFeeder.latestPrices.get(position.symbol);
-            if (!currentPrice) continue;
-            
-            const latestScannerData = botState.scannerCache.find(p => p.symbol === position.symbol);
-
-            // AUTO-EXIT: Close if 4h trend flips
-            if (latestScannerData && latestScannerData.trend_4h !== 'UP') {
-                this.closeTrade(position.id, currentPrice, `Auto-Exit: 4h Trend changed to ${latestScannerData.trend_4h}`);
-                positionsWereUpdated = true;
-                continue; // Skip further processing for this closed trade
-            }
-
-            const pnlOnRemaining = (currentPrice - position.entry_price) * position.quantity;
-            const totalPnl = (position.realized_pnl || 0) + pnlOnRemaining;
-            const entryValue = position.entry_price * (position.initial_quantity || position.quantity);
-            position.pnl = totalPnl;
-            position.pnl_pct = entryValue !== 0 ? (totalPnl / entryValue) * 100 : 0;
-
-            if (currentPrice > position.highest_price_since_entry) {
-                position.highest_price_since_entry = currentPrice;
-                if (botState.settings.USE_TRAILING_STOP_LOSS) {
-                    let newStopLoss;
-                    if (botState.settings.USE_ATR_STOP_LOSS && latestScannerData && latestScannerData.atr_15m) {
-                        newStopLoss = currentPrice - (latestScannerData.atr_15m * botState.settings.ATR_MULTIPLIER);
-                    } else {
-                        newStopLoss = currentPrice * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
-                    }
-
-                    if (newStopLoss > position.stop_loss) {
-                        position.stop_loss = newStopLoss;
-                        log('TRADE', `Trailing SL for ${position.symbol} updated to ${newStopLoss.toFixed(4)}`);
-                    }
-                }
-            }
-
-            if (botState.settings.USE_AUTO_BREAKEVEN && !position.is_at_breakeven && position.pnl_pct >= botState.settings.BREAKEVEN_TRIGGER_PCT) {
-                position.stop_loss = position.entry_price;
-                position.is_at_breakeven = true;
-                log('TRADE', `AUTO-BREAKEVEN: Moved SL to entry for ${position.symbol} at +${position.pnl_pct.toFixed(2)}% profit`);
-            }
-            
-            if (botState.settings.USE_PARTIAL_TAKE_PROFIT && !position.partial_tp_hit && position.pnl_pct >= botState.settings.PARTIAL_TP_TRIGGER_PCT) {
-                const sellQty = position.initial_quantity * (botState.settings.PARTIAL_TP_SELL_QTY_PCT / 100);
-                position.realized_pnl = (position.realized_pnl || 0) + (currentPrice - position.entry_price) * sellQty;
-                position.quantity -= sellQty;
-                botState.balance += sellQty * currentPrice;
-                position.partial_tp_hit = true;
-                log('TRADE', `PARTIAL TP: Sold ${sellQty.toFixed(4)} ${position.symbol}`);
-            }
-
-            if (currentPrice <= position.stop_loss || currentPrice >= position.take_profit) {
-                const reason = currentPrice <= position.stop_loss ? 'Stop Loss hit' : 'Take Profit hit';
-                this.closeTrade(position.id, currentPrice, reason);
-                positionsWereUpdated = true;
-            }
-        }
-
-        if (positionsWereUpdated) await saveData('state');
-        
-        if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) return;
-
-        for (const pair of botState.scannerCache) {
-             const isSignal = botState.settings.REQUIRE_STRONG_BUY ? pair.score === 'STRONG BUY' : (pair.score === 'STRONG BUY' || pair.score === 'BUY');
-            if (isSignal && !botState.activePositions.some(p => p.symbol === pair.symbol)) {
-                this.openTrade(pair);
-                if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) break;
-            }
-        }
-    },
-    openTrade: function(pair) {
-        const { settings, balance } = botState;
-        const currentPrice = priceFeeder.latestPrices.get(pair.symbol);
-        const atr15m = pair.atr_15m;
-        
-        if (!currentPrice) return;
-        if (settings.USE_ATR_STOP_LOSS && !atr15m) {
-            log('WARN', `Cannot open ${pair.symbol}: ATR Stop Loss is enabled but ATR(15m) is not available.`);
-            return;
-        }
-
-        let sizePct = settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY' ? settings.STRONG_BUY_POSITION_SIZE_PCT : settings.POSITION_SIZE_PCT;
-        const positionSizeUSD = balance * (sizePct / 100);
-        const quantity = positionSizeUSD / currentPrice;
-        const entryPrice = currentPrice * (1 + settings.SLIPPAGE_PCT / 100);
-        const cost = entryPrice * quantity;
-        
-        if (balance < cost) return log('WARN', `Insufficient balance for ${pair.symbol}.`);
-
-        let stopLossPrice = settings.USE_ATR_STOP_LOSS 
-            ? entryPrice - (atr15m * settings.ATR_MULTIPLIER)
-            : entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
-        const initialRiskUSD = (entryPrice - stopLossPrice) * quantity;
-
-        botState.balance -= cost;
-        const newTrade = {
-            id: botState.tradeIdCounter++, mode: botState.tradingMode, symbol: pair.symbol, side: 'BUY',
-            entry_price: entryPrice, quantity: quantity, initial_quantity: quantity, stop_loss: stopLossPrice,
-            take_profit: entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100), highest_price_since_entry: entryPrice,
-            entry_time: new Date().toISOString(), status: 'FILLED', initial_risk_usd: initialRiskUSD,
-            is_at_breakeven: false, partial_tp_hit: false, realized_pnl: 0,
-            entry_snapshot: { ...pair }
-        };
-        botState.activePositions.push(newTrade);
-        priceFeeder.updateSubscriptions(new Set([...priceFeeder.subscribedSymbols, newTrade.symbol]));
-        log('TRADE', `OPENED LONG: ${pair.symbol} | Qty: ${quantity.toFixed(4)} @ ${entryPrice.toFixed(4)} | Value: $${cost.toFixed(2)}`);
-        saveData('state');
-        broadcast({ type: 'POSITIONS_UPDATED' });
-    },
-    closeTrade: function(tradeId, exitPrice, reason) {
-        const tradeIndex = botState.activePositions.findIndex(t => t.id === tradeId);
-        if (tradeIndex === -1) return null;
-
-        const trade = botState.activePositions[tradeIndex];
-        const pnl = ((trade.realized_pnl || 0) + (exitPrice - trade.entry_price) * trade.quantity);
-        botState.balance += exitPrice * trade.quantity;
-        Object.assign(trade, {
-            exit_price: exitPrice, exit_time: new Date().toISOString(), status: 'CLOSED', pnl,
-            pnl_pct: (pnl / (trade.entry_price * trade.initial_quantity)) * 100
-        });
-        
-        botState.tradeHistory.push(trade);
-        botState.activePositions.splice(tradeIndex, 1);
-
-        if (pnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
-            const cooldownUntil = Date.now() + botState.settings.LOSS_COOLDOWN_HOURS * 3600000;
-            botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
-            log('TRADE', `${trade.symbol} is on cooldown until ${new Date(cooldownUntil).toLocaleTimeString()}.`);
-        }
-
-        log('TRADE', `CLOSED: ${trade.symbol} @ ${exitPrice.toFixed(4)} | PnL: $${pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) | Reason: ${reason}`);
-        saveData('state');
-        broadcast({ type: 'POSITIONS_UPDATED' });
-        return trade;
-    }
-};
-
-// --- Auth Middleware & API Endpoints ---
-const isAuthenticated = (req, res, next) => {
-    if (req.session.isAuthenticated) return next();
-    res.status(401).json({ message: 'Unauthorized' });
-};
-app.post('/api/login', (req, res) => {
-    if (req.body.password === process.env.APP_PASSWORD) {
-        req.session.isAuthenticated = true;
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false, message: 'Invalid password' });
-    }
-});
-app.post('/api/logout', (req, res) => {
-    req.session.destroy(() => res.json({ success: true }));
-});
-app.get('/api/check-session', (req, res) => res.json({ isAuthenticated: !!req.session.isAuthenticated }));
-
-app.get('/api/mode', isAuthenticated, (req, res) => res.json({ mode: botState.tradingMode }));
-app.post('/api/mode', isAuthenticated, async (req, res) => {
-    const { mode } = req.body;
-    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
-        botState.tradingMode = mode;
-        await saveData('state');
-        log('INFO', `Trading mode switched to ${mode}`);
-        res.json({ success: true, mode: botState.tradingMode });
-    } else {
-        res.status(400).json({ success: false, message: 'Invalid mode.' });
-    }
-});
-
-app.get('/api/settings', isAuthenticated, (req, res) => res.json(botState.settings));
-app.post('/api/settings', isAuthenticated, async (req, res) => {
-    const oldSyncSeconds = botState.settings.COINGECKO_SYNC_SECONDS;
-    botState.settings = { ...botState.settings, ...req.body };
-    realtimeAnalyzer.updateSettings(botState.settings);
-    await saveData('settings');
-    log('INFO', 'Bot settings updated.');
-    runScannerLoop();
-    if (oldSyncSeconds !== botState.settings.COINGECKO_SYNC_SECONDS) {
-        log('INFO', 'Scanner interval updated. Restarting scanner loop.');
-        clearInterval(scannerInterval);
-        scannerInterval = setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
-    }
-    res.json({ success: true });
-});
-app.post('/api/clear-data', isAuthenticated, async (req, res) => {
-    log('WARN', 'Clearing all trade data...');
-    Object.assign(botState, {
-        activePositions: [], tradeHistory: [], tradeIdCounter: 1,
-        balance: botState.settings.INITIAL_VIRTUAL_BALANCE,
-    });
-    await saveData('state');
-    try {
-        await fs.rm(KLINE_DATA_DIR, { recursive: true, force: true });
-        await fs.mkdir(KLINE_DATA_DIR);
-    } catch (error) { log('ERROR', `Could not clear kline data: ${error.message}`); }
-    res.json({ success: true });
-});
-app.get('/api/scanner', isAuthenticated, (req, res) => {
-    const dataWithPrices = botState.scannerCache.map(pair => ({
-        ...pair,
-        price: priceFeeder.latestPrices.get(pair.symbol) || pair.price
-    }));
-    res.json(dataWithPrices);
-});
-app.get('/api/positions', isAuthenticated, (req, res) => res.json(botState.activePositions));
-app.post('/api/close-trade/:tradeId', isAuthenticated, (req, res) => {
-    const tradeId = parseInt(req.params.tradeId, 10);
-    const position = botState.activePositions.find(p => p.id === tradeId);
-    if (!position) return res.status(404).json({ message: 'Position not found' });
-    const currentPrice = priceFeeder.latestPrices.get(position.symbol) || position.entry_price;
-    const closedTrade = tradingEngine.closeTrade(tradeId, currentPrice, 'Manual Close');
-    res.json(closedTrade || { success: false });
-});
-app.get('/api/history', isAuthenticated, (req, res) => res.json(botState.tradeHistory));
-app.get('/api/status', isAuthenticated, (req, res) => {
-    res.json({
-        mode: botState.tradingMode, balance: botState.balance,
-        positions: botState.activePositions.length, monitored_pairs: botState.scannerCache.length,
-        top_pairs: botState.scannerCache.slice(0, 10).map(p => p.symbol),
-        max_open_positions: botState.settings.MAX_OPEN_POSITIONS
-    });
-});
-app.get('/api/performance-stats', isAuthenticated, (req, res) => {
-    const totalTrades = botState.tradeHistory.length;
-    const winning_trades = botState.tradeHistory.filter(t => (t.pnl || 0) > 0).length;
-    res.json({
-        total_trades: totalTrades, winning_trades,
-        losing_trades: totalTrades - winning_trades,
-        total_pnl: botState.tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0),
-        win_rate: totalTrades > 0 ? (winning_trades / totalTrades) * 100 : 0,
-    });
-});
-app.post('/api/test-connection', isAuthenticated, async (req, res) => {
-    const { apiKey, secretKey } = req.body;
-    try {
-        const timestamp = Date.now();
-        const signature = crypto.createHmac('sha256', secretKey).update(`timestamp=${timestamp}`).digest('hex');
-        const response = await fetch(`https://api.binance.com/api/v3/account?timestamp=${timestamp}&signature=${signature}`, { headers: { 'X-MBX-APIKEY': apiKey } });
-        const data = await response.json();
-        res.status(response.status).json(response.ok ? { success: true, message: 'Connection successful!' } : { success: false, message: `Binance Error: ${data.msg}` });
-    } catch (error) { res.status(500).json({ success: false, message: 'Connection failed.' }); }
-});
-app.post('/api/test-coingecko', isAuthenticated, async (req, res) => {
-    const { apiKey } = req.body;
-    try {
-        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&x_cg_demo_api_key=${apiKey}`);
-        const data = await response.json();
-        res.status(response.status).json(response.ok && data.bitcoin ? { success: true, message: 'Connection successful!' } : { success: false, message: `CoinGecko Error: ${data.error}` });
-    } catch (error) { res.status(500).json({ success: false, message: 'Connection failed.' }); }
-});
-app.get('/api/bot/status', isAuthenticated, (req, res) => res.json({ isRunning: botState.isRunning }));
-app.post('/api/bot/start', isAuthenticated, (req, res) => { tradingEngine.start(); res.json({ success: true }); });
-app.post('/api/bot/stop', isAuthenticated, (req, res) => { tradingEngine.stop(); res.json({ success: true }); });
-
-// --- Startup ---
-let scannerInterval;
-const startServer = async () => {
-    await loadData();
-    log('INFO', `Backend server running on http://localhost:${port}`);
-    scannerInterval = setInterval(runScannerLoop, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
-    await runScannerLoop();
-    if (botState.isRunning) tradingEngine.start();
-};
-
-server.listen(port, () => {
-    startServer().catch(err => {
-        log('ERROR', `FATAL: Server failed to start: ${err.stack}`);
-        process.exit(1);
-    });
-});
+const scannerService = new ScannerService(log, KLINE_DATA_

@@ -89,6 +89,11 @@ export class ScannerService {
         if (klines4h.length < 200) return null;
         const klines1h = await this.fetchKlinesFromBinance(symbol, '1h', 0, 201);
         if (klines1h.length < 200) return null;
+        const klines30m = await this.fetchKlinesFromBinance(symbol, '30m', 0, 201);
+        if (klines30m.length < 25) return null;
+        const klines15m = await this.fetchKlinesFromBinance(symbol, '15m', 0, 201);
+        if (klines15m.length < 25) return null;
+
 
         // --- 4h ANALYSIS ---
         const formattedKlines4h = klines4h.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]), volume: parseFloat(k[5]) }));
@@ -101,25 +106,31 @@ export class ScannerService {
         if (lastSma50_4h > lastSma200_4h) marketRegime = 'UPTREND';
         else if (lastSma50_4h < lastSma200_4h) marketRegime = 'DOWNTREND';
         
-        // --- MACRO FILTER APPLICATION ---
-        // This is the master gatekeeper. Only pairs in a confirmed long-term uptrend are even considered for real-time analysis.
         if (settings.USE_MARKET_REGIME_FILTER && marketRegime !== 'UPTREND') {
             return null;
         }
         
         const rsi_4h = RSI.calculate({ values: closes4h, period: 14 }).pop() || 50;
 
-        // --- 1h ANALYSIS ---
+        // --- Multi-Timeframe Analysis ---
         const formattedKlines1h = klines1h.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
+        const formattedKlines30m = klines30m.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
+        const formattedKlines15m = klines15m.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
+        
         const rsi_1h = RSI.calculate({ values: formattedKlines1h.map(k => k.close), period: 14 }).pop() || 50;
 
         const trend_4h = this._calculateTrend(formattedKlines4h).trend;
         const trend_1h = this._calculateTrend(formattedKlines1h).trend;
+        const trend_30m = this._calculateTrend(formattedKlines30m).trend;
+        const trend_15m = this._calculateTrend(formattedKlines15m).trend;
+
 
         const analysisData = {
             priceDirection: 'neutral', 
             trend_4h,
             trend_1h,
+            trend_30m,
+            trend_15m,
             marketRegime, 
             rsi_4h,
             rsi_1h,
