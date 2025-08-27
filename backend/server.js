@@ -529,11 +529,17 @@ async function runScannerCycle() {
         for (const newPair of discoveredPairs) {
             const existingPair = botState.scannerCache.find(p => p.symbol === newPair.symbol);
             if (existingPair) {
-                // Merge: Update long-term data, preserve real-time data
-                const mergedPair = { ...existingPair, ...newPair };
-                newCacheMap.set(newPair.symbol, mergedPair);
+                // SMART MERGE: Update the existing pair with fresh long-term data from the scan,
+                // but crucially, DO NOT overwrite the real-time indicators (score, BB width, etc.)
+                // that are managed by the RealtimeAnalyzer.
+                existingPair.volume = newPair.volume;
+                existingPair.price = newPair.price; // Update price from the poll as a fallback
+                existingPair.price_above_ema50_4h = newPair.price_above_ema50_4h;
+                existingPair.rsi_1h = newPair.rsi_1h;
+                newCacheMap.set(newPair.symbol, existingPair);
             } else {
-                // This is a new pair
+                // This is a completely new pair, add it as is.
+                // It will be hydrated by the RealtimeAnalyzer shortly.
                 newCacheMap.set(newPair.symbol, newPair);
             }
         }
