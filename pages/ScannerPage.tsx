@@ -54,7 +54,7 @@ const EmptyScannerIcon = () => (
 
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
-  const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'ml_score', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score', direction: 'desc' });
   const { settings } = useAppContext();
 
   useEffect(() => {
@@ -85,10 +85,11 @@ const ScannerPage: React.FC = () => {
       sortablePairs.sort((a, b) => {
         let aVal, bVal;
         
-        // Special handling for sorting by MACD histogram which is nested
-        if (sortConfig.key === 'macd') {
-            aVal = a.macd?.histogram;
-            bVal = b.macd?.histogram;
+        // Custom sorting for score to prioritize 'STRONG BUY'
+        if (sortConfig.key === 'score') {
+            const scoreOrder = { 'STRONG BUY': 5, 'COMPRESSION': 4, 'BUY': 3, 'HOLD': 2, 'FAKE_BREAKOUT': 1, 'COOLDOWN': 0 };
+            aVal = scoreOrder[a.score] || 0;
+            bVal = scoreOrder[b.score] || 0;
         } else {
             aVal = a[sortConfig.key];
             bVal = b[sortConfig.key];
@@ -113,55 +114,19 @@ const ScannerPage: React.FC = () => {
     switch (score) {
         case 'STRONG BUY': return 'bg-green-600 text-green-100';
         case 'BUY': return 'bg-green-800 text-green-200';
+        case 'COMPRESSION': return 'bg-sky-700 text-sky-200';
         case 'HOLD': return 'bg-gray-700 text-gray-200';
         case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
+        case 'FAKE_BREAKOUT': return 'bg-orange-800 text-orange-200';
         default: return 'bg-gray-700 text-gray-200';
     }
   };
-  
-  const getTrendJsx = (trend: ScannedPair['trend'] | ScannedPair['trend_4h']) => {
-      if (!trend) return <span className="text-gray-500">-</span>;
-      switch(trend) {
-          case 'UP': return <span className="text-green-400 flex items-center gap-1">▲ UP</span>;
-          case 'DOWN': return <span className="text-red-400 flex items-center gap-1">▼ DOWN</span>;
-          default: return <span className="text-gray-400">- NEUTRAL</span>;
-      }
-  }
-
-  const getMlPredictionJsx = (prediction: ScannedPair['ml_prediction']) => {
-      if (!prediction) return <span className="text-gray-500">-</span>;
-      switch(prediction) {
-          case 'UP': return <span className="text-teal-400 flex items-center gap-1">▲ UP</span>;
-          case 'DOWN': return <span className="text-rose-400 flex items-center gap-1">▼ DOWN</span>;
-          default: return <span className="text-gray-400">- NEUTRAL</span>;
-      }
-  }
-
-  const getMarketRegimeJsx = (regime: ScannedPair['marketRegime']) => {
-    if (!regime) return <span className="text-gray-500">-</span>;
-    switch(regime) {
-        case 'UPTREND': return <span className="text-sky-400 font-bold">TENDANCE HAUSSIÈRE</span>;
-        case 'DOWNTREND': return <span className="text-orange-400">TENDANCE BAISSIÈRE</span>;
-        default: return <span className="text-gray-500">NEUTRE</span>;
-    }
-  }
-
-  const totalColumnCount = useMemo(() => {
-    if (!settings) return 10;
-    let count = 9; // Symbole, Prix, Score, Volume, Volatilité, RSI, ADX, MACD Hist
-    if (settings.USE_ML_MODEL_FILTER) count += 2;
-    if (settings.USE_CONFLUENCE_FILTER_1M) count++;
-    if (settings.USE_CONFLUENCE_FILTER_15M) count++;
-    if (settings.USE_CONFLUENCE_FILTER_30M) count++;
-    if (settings.USE_CONFLUENCE_FILTER_1H) count++;
-    if (settings.USE_CONFLUENCE_FILTER_4H) count++;
-    if (settings.USE_MARKET_REGIME_FILTER) count++;
-    return count;
-  }, [settings]);
 
   if (!settings) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
+  
+  const totalColumnCount = 8; // Symbole, Prix, Score, Tendance 4h, RSI 1h, Volume, Volatilité, BB Width 15m
 
   return (
     <div className="space-y-6">
@@ -174,30 +139,20 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
-                        {settings.USE_ML_MODEL_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_prediction">Prédiction ML</SortableHeader>}
-                        {settings.USE_ML_MODEL_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="ml_score">Score ML</SortableHeader>}
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité</SortableHeader>
-                        {settings.USE_CONFLUENCE_FILTER_1M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend">Tendance 1m</SortableHeader>}
-                        {settings.USE_CONFLUENCE_FILTER_15M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_15m">Tendance 15m</SortableHeader>}
-                        {settings.USE_CONFLUENCE_FILTER_30M && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_30m">Tendance 30m</SortableHeader>}
-                        {settings.USE_CONFLUENCE_FILTER_1H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_1h">Tendance 1h</SortableHeader>}
-                        {settings.USE_CONFLUENCE_FILTER_4H && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_4h">Tendance 4h</SortableHeader>}
-                        {settings.USE_MARKET_REGIME_FILTER && <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="marketRegime">Régime Marché</SortableHeader>}
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi">RSI (1m)</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx">ADX</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="macd">MACD Hist (1m)</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h (EMA50)</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité 1m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="bollinger_bands_15m">Largeur BB 15m</SortableHeader>
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {sortedPairs.length > 0 ? (
                         sortedPairs.map(pair => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
-                            const rsiClass = pair.rsi > 70 ? 'text-green-400' : (pair.rsi < 30 ? 'text-red-400' : 'text-gray-300');
-                            const adxClass = pair.adx > 25 ? 'text-blue-400 font-bold' : 'text-gray-300';
-                            const macdHist = pair.macd?.histogram;
-                            const macdClass = macdHist !== undefined && macdHist > 0 ? 'text-blue-400 font-bold' : 'text-gray-400';
-                            
+                            const rsi1hClass = pair.rsi_1h && pair.rsi_1h >= 75 ? 'text-red-400 font-bold' : 'text-gray-300';
+                            const bbWidth = pair.bollinger_bands_15m?.width_pct;
+
                             return (
                                 <tr key={pair.symbol}>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
@@ -207,20 +162,14 @@ const ScannerPage: React.FC = () => {
                                             {pair.score}
                                         </span>
                                     </td>
-                                    {settings.USE_ML_MODEL_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMlPredictionJsx(pair.ml_prediction)}</td>}
-                                    {settings.USE_ML_MODEL_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-300">{pair.ml_score?.toFixed(1) || 'N/A'}</td>}
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                        {pair.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (pair.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
+                                    </td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${rsi1hClass}`}>{pair.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
-                                    {settings.USE_CONFLUENCE_FILTER_1M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_15M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_15m)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_30M && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_30m)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_1H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_1h)}</td>}
-                                    {settings.USE_CONFLUENCE_FILTER_4H && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(pair.trend_4h)}</td>}
-                                    {settings.USE_MARKET_REGIME_FILTER && <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getMarketRegimeJsx(pair.marketRegime)}</td>}
-                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${rsiClass}`}>{pair.rsi.toFixed(1)}</td>
-                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${adxClass}`}>{pair.adx.toFixed(1)}</td>
-                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono ${macdClass}`}>
-                                        {macdHist?.toFixed(5) || 'N/A'}
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${pair.is_in_squeeze_15m ? 'text-sky-400 font-bold' : 'text-gray-300'}`}>
+                                      {bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}
                                     </td>
                                 </tr>
                             )

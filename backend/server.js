@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import http from 'http';
 import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
-import { RSI, ADX, ATR, MACD, SMA } from 'technicalindicators';
+import { RSI, ADX, ATR, MACD, SMA, BollingerBands } from 'technicalindicators';
 
 
 // --- Basic Setup ---
@@ -160,12 +160,12 @@ const loadData = async () => {
             USE_TRAILING_STOP_LOSS: process.env.USE_TRAILING_STOP_LOSS === 'true',
             TRAILING_STOP_LOSS_PCT: parseFloat(process.env.TRAILING_STOP_LOSS_PCT) || 1.5,
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
-            MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 400000000,
+            MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 10000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
             RSI_MIN_THRESHOLD: parseFloat(process.env.RSI_MIN_THRESHOLD) || 50,
             ADX_MIN_THRESHOLD: parseFloat(process.env.ADX_MIN_THRESHOLD) || 25,
             COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
-            COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 60,
+            COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 3600, // Scan less often
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
             USE_MARKET_REGIME_FILTER: process.env.USE_MARKET_REGIME_FILTER === 'true',
@@ -179,7 +179,7 @@ const loadData = async () => {
             USE_AUTO_BREAKEVEN: true,
             BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
             USE_RSI_OVERBOUGHT_FILTER: true,
-            RSI_OVERBOUGHT_THRESHOLD: 70,
+            RSI_OVERBOUGHT_THRESHOLD: 75,
             USE_MACD_CONFIRMATION: true,
             USE_PARTIAL_TAKE_PROFIT: false,
             PARTIAL_TP_TRIGGER_PCT: 1.5,
@@ -255,50 +255,41 @@ const saveData = async (type) => {
 };
 
 
-// --- Realtime Analysis Engine ---
+// --- Realtime Analysis Engine (Volatility Breakout Strategy) ---
 class RealtimeAnalyzer {
     constructor(log) {
         this.log = log;
         this.settings = {};
         this.klineData = new Map(); // Map<symbol, Map<interval, kline[]>>
         this.hydrating = new Set();
+        // Threshold for detecting a Bollinger Band squeeze, e.g., if width is in the bottom 15% of recent history
+        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.15;
+        this.SQUEEZE_LOOKBACK = 50; // Look back over last 50 periods to define "low volatility"
     }
 
     updateSettings(newSettings) {
-        this.log('INFO', '[Analyzer] Settings updated.');
+        this.log('INFO', '[Analyzer] Settings updated for Volatility Breakout strategy.');
         this.settings = newSettings;
     }
-    
+
     async hydrateSymbol(symbol) {
         if (this.hydrating.has(symbol) || this.klineData.has(symbol)) return;
         this.hydrating.add(symbol);
-        this.log('INFO', `[Analyzer] Hydrating initial kline data for ${symbol} across all timeframes...`);
+        this.log('INFO', `[Analyzer] Hydrating initial kline data for ${symbol} for breakout strategy...`);
         try {
-            const timeframes = ['1m', '15m', '30m', '1h', '4h'];
+            const timeframes = ['1m', '15m', '1h']; // 4h is handled by ScannerService
             const symbolData = new Map();
-            const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
 
             for (const tf of timeframes) {
                 const klines = await scannerService.fetchKlinesFromBinance(symbol, tf, 0, 200);
                 const formattedKlines = klines.map(k => ({
-                    open: parseFloat(k[1]),
-                    close: parseFloat(k[4]),
-                    high: parseFloat(k[2]),
-                    low: parseFloat(k[3]),
-                    volume: parseFloat(k[5]),
+                    open: parseFloat(k[1]), close: parseFloat(k[4]), high: parseFloat(k[2]),
+                    low: parseFloat(k[3]), volume: parseFloat(k[5]),
                 }));
                 symbolData.set(tf, formattedKlines);
-
-                // Initial trend calculation after fetching
-                if (pairToUpdate && formattedKlines.length > 25) {
-                    const trendResult = scannerService._calculateTrend(formattedKlines);
-                    const trendKey = tf === '1m' ? 'trend' : `trend_${tf}`;
-                    pairToUpdate[trendKey] = trendResult.trend;
-                }
             }
             this.klineData.set(symbol, symbolData);
-            this.log('INFO', `[Analyzer] Successfully hydrated ${symbol} and performed initial trend analysis.`);
-
+            this.log('INFO', `[Analyzer] Successfully hydrated ${symbol}.`);
         } catch (error) {
             this.log('ERROR', `[Analyzer] Failed to hydrate klines for ${symbol}: ${error.message}`);
         } finally {
@@ -307,7 +298,7 @@ class RealtimeAnalyzer {
     }
 
     async handleKline(klineMsg, interval) {
-        this.log('BINANCE_WS', `[${interval}] Bougie clôturée reçue pour ${klineMsg.s}. Traitement...`);
+        this.log('BINANCE_WS', `[${interval}] Bougie clôturée reçue pour ${klineMsg.s}.`);
         if (!this.settings || Object.keys(this.settings).length === 0) return;
 
         const symbol = klineMsg.s;
@@ -319,6 +310,7 @@ class RealtimeAnalyzer {
         const k = klineMsg.k;
         const newKline = { open: parseFloat(k.o), close: parseFloat(k.c), high: parseFloat(k.h), low: parseFloat(k.l), volume: parseFloat(k.v) };
 
+        // Update kline data for the given interval
         const intervalKlines = symbolKlines.get(interval) || [];
         intervalKlines.push(newKline);
         if (intervalKlines.length > 200) intervalKlines.shift();
@@ -326,85 +318,87 @@ class RealtimeAnalyzer {
         
         const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
         if (!pairToUpdate) return;
+
+        // --- 1M ANALYSIS (for live volatility) ---
+        if (interval === '1m') {
+            const lookbackPeriod = 20;
+            if (intervalKlines.length >= lookbackPeriod) {
+                const recentKlines = intervalKlines.slice(-lookbackPeriod);
+                const highestHigh = Math.max(...recentKlines.map(k => k.high));
+                const lowestLow = Math.min(...recentKlines.map(k => k.low));
+                pairToUpdate.volatility = lowestLow > 0 ? ((highestHigh - lowestLow) / lowestLow) * 100 : 0;
+            }
+        }
+
+        // --- 15M ANALYSIS (THE CORE STRATEGY) ---
+        if (interval !== '15m') {
+            // Only update and broadcast if it was a 1m candle, otherwise wait for 15m analysis
+             if (interval === '1m') broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+             return;
+        }
+
+        this.log('SCANNER', `[15m] Analyzing ${symbol} for breakout conditions...`);
+        const klines15m = intervalKlines;
+        if (klines15m.length < this.SQUEEZE_LOOKBACK) {
+            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m.length} candles).`);
+            return;
+        }
+
+        const closes15m = klines15m.map(d => d.close);
+
+        // 1. Bollinger Bands Calculation
+        const bb = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
+        const lastBB = bb.pop();
+        if (!lastBB) return;
         
-        // --- Update indicators for the current timeframe ---
-        const closes = intervalKlines.map(d => d.close);
-        const highs = intervalKlines.map(d => d.high);
-        const lows = intervalKlines.map(d => d.low);
+        const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
+        pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
 
-        const newTrend = scannerService._calculateTrend(intervalKlines).trend;
-        const trendKey = interval === '1m' ? 'trend' : `trend_${interval}`;
-        if (pairToUpdate[trendKey] !== newTrend) {
-            this.log('SCANNER', `[${interval}] Trend for ${symbol} updated to ${newTrend}.`);
-            pairToUpdate[trendKey] = newTrend;
-        }
-
-        if (['15m', '30m'].includes(interval) && closes.length >= 14) {
-            const rsiKey = `rsi_${interval}`;
-            pairToUpdate[rsiKey] = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
-        }
-        if (interval === '15m' && closes.length >= 14) {
-            pairToUpdate.atr_15m = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop() || 0;
-        }
-
-        // Only do the full scoring on the 1m interval
-        if (interval !== '1m') return;
+        // 2. Squeeze Detection
+        const historicalWidths = bb.map(b => (b.upper - b.lower) / b.middle);
+        const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
+        const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
         
-        // --- 1M ANALYSIS AND SCORING ---
-        if (closes.length < 26) return; // Need enough data for all indicators
-        
-        const lookbackPeriod = 20;
-        if (intervalKlines.length >= lookbackPeriod) {
-            const recentKlines = intervalKlines.slice(-lookbackPeriod);
-            const highestHigh = Math.max(...recentKlines.map(k => k.high));
-            const lowestLow = Math.min(...recentKlines.map(k => k.low));
-            pairToUpdate.volatility = lowestLow > 0 ? ((highestHigh - lowestLow) / lowestLow) * 100 : 0;
-        }
+        const wasInSqueeze = ((bb[bb.length - 1].upper - bb[bb.length - 1].lower) / bb[bb.length - 1].middle) <= squeezeThreshold;
+        pairToUpdate.is_in_squeeze_15m = bbWidthPct <= squeezeThreshold;
 
-        pairToUpdate.rsi = RSI.calculate({ values: closes, period: 14 }).pop() || 50;
-        pairToUpdate.adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 20;
-        
-        const macdOutput = MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }).pop();
-        if (macdOutput) {
-            pairToUpdate.macd = { MACD: macdOutput.MACD, signal: macdOutput.signal, histogram: macdOutput.histogram };
-        }
+        let score = pairToUpdate.is_in_squeeze_15m ? 'COMPRESSION' : 'HOLD';
 
-        let score = 'HOLD';
-        const { settings } = this;
+        // 3. Volume Average Calculation
+        const volumes15m = klines15m.map(k => k.volume);
+        const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
+        pairToUpdate.volume_20_period_avg_15m = avgVolume;
 
-        // --- Gatekeeper Checks ---
-        const check1_MarketRegime = !settings.USE_MARKET_REGIME_FILTER || pairToUpdate.marketRegime === 'UPTREND';
-        const check2_Confluence = (
-            (!settings.USE_CONFLUENCE_FILTER_4H || pairToUpdate.trend_4h === 'UP') &&
-            (!settings.USE_CONFLUENCE_FILTER_1H || pairToUpdate.trend_1h === 'UP') &&
-            (!settings.USE_CONFLUENCE_FILTER_30M || pairToUpdate.trend_30m === 'UP') &&
-            (!settings.USE_CONFLUENCE_FILTER_15M || pairToUpdate.trend_15m === 'UP') &&
-            (!settings.USE_CONFLUENCE_FILTER_1M || pairToUpdate.trend === 'UP')
-        );
-        const check3_Volatility = pairToUpdate.volatility >= settings.MIN_VOLATILITY_PCT;
-        const check4_Adx = pairToUpdate.adx >= settings.ADX_MIN_THRESHOLD;
-        const check5_RsiRange = pairToUpdate.rsi >= settings.RSI_MIN_THRESHOLD && (!settings.USE_RSI_OVERBOUGHT_FILTER || pairToUpdate.rsi <= settings.RSI_OVERBOUGHT_THRESHOLD);
-        const check6_Macd = !settings.USE_MACD_CONFIRMATION || (pairToUpdate.macd && pairToUpdate.macd.histogram > 0);
-        const avgVolume = intervalKlines.length > 1 ? intervalKlines.slice(-20, -1).reduce((sum, k) => sum + k.volume, 0) / 19 : 0;
-        const check7_Volume = !settings.USE_VOLUME_CONFIRMATION || (avgVolume > 0 && newKline.volume > avgVolume);
+        // --- BREAKOUT TRIGGER CHECK ---
+        const breakoutCandle = newKline;
+        const previousCandle = klines15m[klines15m.length - 2];
+        const isBreakout = breakoutCandle.close > lastBB.upper;
 
-        if (check1_MarketRegime && check2_Confluence && check3_Volatility && check4_Adx && check5_RsiRange && check6_Macd && check7_Volume) {
-            score = 'BUY';
+        if (wasInSqueeze && isBreakout) {
+            this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
+            
+            const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
+            const check2_Volume = breakoutCandle.volume > (avgVolume * 2);
+            const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
 
-            const isAdxStrong = pairToUpdate.adx > (settings.ADX_MIN_THRESHOLD + 5);
-            const isRsiIdeal = pairToUpdate.rsi < (settings.RSI_OVERBOUGHT_THRESHOLD - 5);
-            if (isAdxStrong && isRsiIdeal) {
+            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
+
+            if (check1_Trend && check2_Volume && check3_RSI) {
                 score = 'STRONG BUY';
+                const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
+                if (cooldownInfo && Date.now() < cooldownInfo.until) {
+                    score = 'COOLDOWN';
+                    this.log('TRADE', `Skipping trade for ${symbol} due to recent loss cooldown.`);
+                } else {
+                     this.log('TRADE', `>>> FIRING TRADE for ${symbol} <<<`);
+                     tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
+                }
+            } else {
+                score = 'FAKE_BREAKOUT';
             }
         }
         
-        const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
-        if ((score === 'BUY' || score === 'STRONG BUY') && cooldownInfo && Date.now() < cooldownInfo.until) {
-            score = 'COOLDOWN';
-        }
-
         pairToUpdate.score = score;
-        
         broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
     }
 }
@@ -424,67 +418,54 @@ let binanceWsClient = null;
 
 // --- Trading Engine ---
 const tradingEngine = {
-    async evaluateAndOpenTrade(pair) {
+    async evaluateAndOpenTrade(pair, stopLossPrice) {
         if (!botState.isRunning) return;
         if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) return;
         if (botState.activePositions.some(p => p.symbol === pair.symbol)) return;
+        if (pair.score !== 'STRONG BUY') return; // Only trade the highest quality signal
 
-        const { settings } = botState;
-        const requiredScore = settings.REQUIRE_STRONG_BUY ? 'STRONG BUY' : 'BUY';
-        if (pair.score !== requiredScore && pair.score !== 'STRONG BUY') return;
-        
-        const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
-        if (cooldownInfo && Date.now() < cooldownInfo.until) {
-            log('TRADE', `Skipping trade for ${pair.symbol} due to recent loss cooldown.`);
-            return;
-        }
-
-        log('TRADE', `Valid trade signal found for ${pair.symbol} with score ${pair.score}. Opening position...`);
-        this.openPosition(pair);
+        log('TRADE', `Valid trade signal for ${pair.symbol} confirmed. Opening position...`);
+        this.openPosition(pair, stopLossPrice);
     },
 
-    async openPosition(pair) {
+    async openPosition(pair, stopLossPrice) {
         const { settings } = botState;
-        let positionSizePct = settings.POSITION_SIZE_PCT;
-        if (settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
-            positionSizePct = settings.STRONG_BUY_POSITION_SIZE_PCT;
-        }
-        const positionSizeUSD = botState.balance * (positionSizePct / 100);
-        const quantity = positionSizeUSD / pair.price;
+        const entryPrice = pair.price; // Use the most current price for entry
 
-        // Calculate Stop Loss
-        let stopLossPrice;
-        if (settings.USE_ATR_STOP_LOSS && pair.atr_15m > 0) {
-            stopLossPrice = pair.price - (pair.atr_15m * settings.ATR_MULTIPLIER);
-        } else {
-            stopLossPrice = pair.price * (1 - settings.STOP_LOSS_PCT / 100);
+        // --- Risk/Reward Calculation ---
+        const riskPerShare = entryPrice - stopLossPrice;
+        if (riskPerShare <= 0) {
+            log('WARN', `Invalid SL price for ${pair.symbol}. Entry: ${entryPrice}, SL: ${stopLossPrice}. Aborting trade.`);
+            return;
         }
+        const takeProfitPrice = entryPrice + (riskPerShare * 2); // 2:1 Risk/Reward Ratio
+
+        const positionSizeUSD = botState.balance * (settings.POSITION_SIZE_PCT / 100);
+        const quantity = positionSizeUSD / entryPrice;
 
         const newTrade = {
             id: botState.tradeIdCounter++,
             mode: botState.tradingMode,
             symbol: pair.symbol,
             side: 'BUY',
-            entry_price: pair.price,
+            entry_price: entryPrice,
             quantity,
             initial_quantity: quantity,
             stop_loss: stopLossPrice,
-            take_profit: pair.price * (1 + settings.TAKE_PROFIT_PCT / 100),
-            highest_price_since_entry: pair.price,
+            take_profit: takeProfitPrice,
+            highest_price_since_entry: entryPrice,
             entry_time: new Date().toISOString(),
-            status: 'PENDING', // Will be FILLED once executed
+            status: 'PENDING',
             pnl: 0,
             pnl_pct: 0,
-            entry_snapshot: { ...pair } // Deep copy of the scanner state at entry
+            entry_snapshot: { ...pair }
         };
         
         // --- TODO: REAL TRADING LOGIC ---
-        // if (botState.tradingMode === 'REAL_LIVE') { ... call binance api ... }
-        // For now, we simulate instant fill
         newTrade.status = 'FILLED';
 
         botState.activePositions.push(newTrade);
-        log('TRADE', `Opened new ${botState.tradingMode} position for ${quantity.toFixed(4)} ${pair.symbol} @ $${pair.price}.`);
+        log('TRADE', `Opened new ${botState.tradingMode} position for ${quantity.toFixed(4)} ${pair.symbol} @ $${entryPrice}. SL: ${stopLossPrice}, TP: ${takeProfitPrice}`);
         
         broadcast({ type: 'POSITIONS_UPDATED' });
         await saveData('state');
@@ -496,23 +477,6 @@ const tradingEngine = {
             if (pos.symbol === priceUpdate.symbol) {
                 const currentPrice = priceUpdate.price;
                 pos.highest_price_since_entry = Math.max(pos.highest_price_since_entry, currentPrice);
-
-                const pnl = (currentPrice - pos.entry_price) * pos.quantity;
-                const pnl_pct = (pnl / (pos.entry_price * pos.quantity)) * 100;
-
-                // --- Risk Management Logic ---
-                // 1. Trailing Stop Loss
-                if (botState.settings.USE_TRAILING_STOP_LOSS) {
-                    const trailingStopPrice = pos.highest_price_since_entry * (1 - botState.settings.TRAILING_STOP_LOSS_PCT / 100);
-                    pos.stop_loss = Math.max(pos.stop_loss, trailingStopPrice);
-                }
-
-                // 2. Auto Break-even
-                if (botState.settings.USE_AUTO_BREAKEVEN && !pos.is_at_breakeven && pnl_pct >= botState.settings.BREAKEVEN_TRIGGER_PCT) {
-                    pos.stop_loss = pos.entry_price;
-                    pos.is_at_breakeven = true;
-                    log('TRADE', `Moved Stop Loss to break-even for ${pos.symbol}.`);
-                }
 
                 // --- Exit Condition Checks ---
                 if (currentPrice <= pos.stop_loss) {
@@ -596,7 +560,7 @@ class BinanceWsClient {
         }
 
         const streams = [];
-        const timeframes = ['1m', '15m', '30m'];
+        const timeframes = ['1m', '15m']; // Only need these for realtime analysis now
         symbols.forEach(s => {
             streams.push(`${s.toLowerCase()}@aggTrade`); // Realtime price
             timeframes.forEach(tf => streams.push(`${s.toLowerCase()}@kline_${tf}`));
@@ -637,7 +601,7 @@ class BinanceWsClient {
     
     updateSubscriptions(newSymbols) {
         const newStreams = new Set();
-        const timeframes = ['1m', '15m', '30m'];
+        const timeframes = ['1m', '15m'];
         newSymbols.forEach(s => {
             newStreams.add(`${s.toLowerCase()}@aggTrade`);
             timeframes.forEach(tf => newStreams.add(`${s.toLowerCase()}@kline_${tf}`));
@@ -853,15 +817,8 @@ app.get('/api/scanner', isAuthenticated, (req, res) => {
 
 // Actions
 app.post('/api/open-trade', isAuthenticated, async (req, res) => {
-    const { symbol, price, mode } = req.body; // For manual trades if needed
-    // This endpoint is less used now that the engine is automated, but good to have
-    const pairData = botState.scannerCache.find(p => p.symbol === symbol);
-    if (pairData) {
-        await tradingEngine.openPosition(pairData);
-        res.status(200).json({ success: true });
-    } else {
-        res.status(404).json({ success: false, message: "Pair not found in scanner cache." });
-    }
+    // This endpoint is now deprecated in favor of the automated engine
+    res.status(400).json({ success: false, message: "Manual trade opening is disabled." });
 });
 
 app.post('/api/close-trade/:tradeId', isAuthenticated, async (req, res) => {

@@ -1,18 +1,18 @@
 import fs from 'fs/promises';
 import path from 'path';
 import fetch from 'node-fetch';
-import { SMA, ADX, MACD, RSI } from 'technicalindicators';
+import { SMA, ADX, MACD, RSI, EMA } from 'technicalindicators';
 
 export class ScannerService {
     constructor(log, klineDataDir) {
         this.log = log;
         this.klineDataDir = klineDataDir;
-        this.cache = new Map(); // Cache in-memory pour les tendances 4h
-        this.cacheTTL = 4 * 60 * 60 * 1000; // 4 heures
+        this.cache = new Map(); // Cache in-memory pour les analyses de fond
+        this.cacheTTL = 60 * 60 * 1000; // 1 heure
     }
 
     async runScan(settings) {
-        this.log('SCANNER', 'Starting new discovery cycle...');
+        this.log('SCANNER', 'Starting new discovery cycle for breakout strategy...');
         try {
             const binancePairs = await this.discoverAndFilterPairsFromBinance(settings);
             if (binancePairs.length === 0) {
@@ -32,7 +32,7 @@ export class ScannerService {
             const results = await Promise.all(analysisPromises);
             const analyzedPairs = results.filter(p => p !== null);
             
-            this.log('SCANNER', `Discovery finished. ${analyzedPairs.length} pairs passed long-term analysis.`);
+            this.log('SCANNER', `Discovery finished. ${analyzedPairs.length} pairs passed long-term analysis and are being monitored.`);
             return analyzedPairs;
 
         } catch (error) {
@@ -67,76 +67,46 @@ export class ScannerService {
         }
     }
 
-    _calculateTrend(klines) {
-        if (klines.length < 25) return { trend: 'NEUTRAL' };
-        const closes = klines.map(k => k.close);
-        const highs = klines.map(k => k.high);
-        const lows = klines.map(k => k.low);
-
-        const lastSma20 = SMA.calculate({ period: 20, values: closes }).pop();
-        const lastAdx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 }).pop()?.adx || 0;
-        
-        return { trend: lastAdx > 25 ? (closes[closes.length - 1] > lastSma20 ? 'UP' : 'DOWN') : 'NEUTRAL' };
-    }
-
     async analyzePair(symbol, settings) {
         const cached = this.cache.get(symbol);
         if (cached && cached.timestamp > Date.now() - this.cacheTTL) {
             return cached.data;
         }
+        this.log('SCANNER', `Performing long-term analysis for ${symbol}...`);
 
-        const klines4h = await this.fetchKlinesFromBinance(symbol, '4h', 0, 201);
-        if (klines4h.length < 200) return null;
-        const klines1h = await this.fetchKlinesFromBinance(symbol, '1h', 0, 201);
-        if (klines1h.length < 200) return null;
-        const klines30m = await this.fetchKlinesFromBinance(symbol, '30m', 0, 201);
-        if (klines30m.length < 25) return null;
-        const klines15m = await this.fetchKlinesFromBinance(symbol, '15m', 0, 201);
-        if (klines15m.length < 25) return null;
+        // --- Fetch Data ---
+        const klines4h = await this.fetchKlinesFromBinance(symbol, '4h', 0, 100);
+        if (klines4h.length < 50) return null; // Need enough for EMA50
+        
+        const klines1h = await this.fetchKlinesFromBinance(symbol, '1h', 0, 100);
+        if (klines1h.length < 15) return null; // Need enough for RSI14
 
-
-        // --- 4h ANALYSIS ---
-        const formattedKlines4h = klines4h.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]), volume: parseFloat(k[5]) }));
-        const closes4h = formattedKlines4h.map(k => k.close);
+        // --- 4h ANALYSIS (Master Trend Filter) ---
+        const closes4h = klines4h.map(k => parseFloat(k[4]));
+        const lastEma50_4h = EMA.calculate({ period: 50, values: closes4h }).pop();
+        const lastClose4h = closes4h[closes4h.length - 1];
         
-        const lastSma50_4h = SMA.calculate({ period: 50, values: closes4h }).pop();
-        const lastSma200_4h = SMA.calculate({ period: 200, values: closes4h }).pop();
+        const price_above_ema50_4h = lastClose4h > lastEma50_4h;
         
-        let marketRegime = 'NEUTRAL';
-        if (lastSma50_4h > lastSma200_4h) marketRegime = 'UPTREND';
-        else if (lastSma50_4h < lastSma200_4h) marketRegime = 'DOWNTREND';
-        
-        if (settings.USE_MARKET_REGIME_FILTER && marketRegime !== 'UPTREND') {
-            return null;
+        // If master filter is enabled and condition isn't met, we can stop early.
+        if (settings.USE_MARKET_REGIME_FILTER && !price_above_ema50_4h) {
+             this.log('SCANNER', `${symbol} filtered out by master 4h trend filter.`);
+             return null;
         }
-        
-        const rsi_4h = RSI.calculate({ values: closes4h, period: 14 }).pop() || 50;
 
-        // --- Multi-Timeframe Analysis ---
-        const formattedKlines1h = klines1h.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
-        const formattedKlines30m = klines30m.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
-        const formattedKlines15m = klines15m.map(k => ({ close: parseFloat(k[4]), high: parseFloat(k[2]), low: parseFloat(k[3]) }));
-        
-        const rsi_1h = RSI.calculate({ values: formattedKlines1h.map(k => k.close), period: 14 }).pop() || 50;
-
-        const trend_4h = this._calculateTrend(formattedKlines4h).trend;
-        const trend_1h = this._calculateTrend(formattedKlines1h).trend;
-        const trend_30m = this._calculateTrend(formattedKlines30m).trend;
-        const trend_15m = this._calculateTrend(formattedKlines15m).trend;
-
+        // --- 1h ANALYSIS (Safety Filter) ---
+        const closes1h = klines1h.map(k => parseFloat(k[4]));
+        const rsi_1h = RSI.calculate({ values: closes1h, period: 14 }).pop();
 
         const analysisData = {
-            priceDirection: 'neutral', 
-            trend_4h,
-            trend_1h,
-            trend_30m,
-            trend_15m,
-            marketRegime, 
-            rsi_4h,
+            price_above_ema50_4h,
             rsi_1h,
             // Default values for realtime indicators, they will be populated by the RealtimeAnalyzer
-            rsi: 50, adx: 0, score: 'HOLD', volatility: 0, atr: 0, atr_15m: 0,
-            macd: null, ml_score: 50, ml_prediction: 'NEUTRAL',
+            priceDirection: 'neutral', 
+            rsi: 50, 
+            score: 'HOLD', 
+            volatility: 0,
+            is_in_squeeze_15m: false,
         };
 
         this.cache.set(symbol, { timestamp: Date.now(), data: analysisData });

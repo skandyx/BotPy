@@ -69,7 +69,7 @@ export interface ScannedPair {
     atr_15m?: number;
     macd?: { MACD: number; signal: number; histogram: number; };
     prev_macd_histogram?: number; // For detecting MACD cross
-    score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN';
+    score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
     volatility: number; // Volatility as a percentage
     macd_4h?: { MACD: number; signal: number; histogram: number; };
     ml_score?: number; // ML Model Confidence Score (0-100)
@@ -77,6 +77,12 @@ export interface ScannedPair {
     volume_4h_increasing?: boolean;
     price_above_sma200_1h?: boolean;
     price_above_sma200_4h?: boolean;
+    
+    // --- Volatility Breakout Strategy Fields ---
+    price_above_ema50_4h?: boolean;
+    bollinger_bands_15m?: { upper: number; middle: number; lower: number; width_pct: number; };
+    is_in_squeeze_15m?: boolean;
+    volume_20_period_avg_15m?: number;
 }
 
 
