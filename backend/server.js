@@ -73,6 +73,10 @@ wss.on('connection', (ws) => {
         clients.delete(ws);
         log('WEBSOCKET', 'Frontend client disconnected.');
     });
+    ws.on('error', (error) => {
+        log('ERROR', `WebSocket client error: ${error.message}`);
+        ws.close();
+    });
 });
 function broadcast(message) {
     const data = JSON.stringify(message);
@@ -81,7 +85,11 @@ function broadcast(message) {
     }
     for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(data);
+             client.send(data, (err) => {
+                if (err) {
+                    log('ERROR', `Failed to send message to a client: ${err.message}`);
+                }
+            });
         }
     }
 }
@@ -250,11 +258,11 @@ class RealtimeAnalyzer {
         this.settings = {};
         this.klineData = new Map(); // Map<symbol, Map<interval, kline[]>>
         this.hydrating = new Set();
-        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.15;
+        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.25; // Adjusted threshold
         this.SQUEEZE_LOOKBACK = 50;
         this.SCORE_MAP = {
             'STRONG BUY': 100,
-            'BUY': 90,
+            'BUY': 90, // Not used in this strategy but kept for scale
             'COMPRESSION': 80,
             'HOLD': 50,
             'FAKE_BREAKOUT': 30,
@@ -267,19 +275,8 @@ class RealtimeAnalyzer {
         this.settings = newSettings;
     }
 
-    // First parameter can be a symbol (string) from WebSocket or a pair object from initial scan
-    analyze15mIndicators(symbolOrPair, isInitialAnalysis = false) {
+    analyze15mIndicators(symbolOrPair) {
         const symbol = typeof symbolOrPair === 'string' ? symbolOrPair : symbolOrPair.symbol;
-        
-        const symbolKlines = this.klineData.get(symbol);
-        if (!symbolKlines) return;
-
-        const klines15m = symbolKlines.get('15m');
-        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) {
-            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m?.length || 0} candles).`);
-            return;
-        }
-        
         const pairToUpdate = typeof symbolOrPair === 'string' 
             ? botState.scannerCache.find(p => p.symbol === symbol) 
             : symbolOrPair;
@@ -288,8 +285,13 @@ class RealtimeAnalyzer {
             this.log('WARN', `[15m] Could not find pair ${symbol} in cache for analysis.`);
             return;
         }
-        
-        this.log('SCANNER', `[15m] Analyzing ${symbol} for breakout conditions...`);
+
+        const klines15m = this.klineData.get(symbol)?.get('15m');
+        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) {
+            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m?.length || 0} candles).`);
+            return;
+        }
+
         const closes15m = klines15m.map(d => d.close);
         const highs15m = klines15m.map(d => d.high);
         const lows15m = klines15m.map(d => d.low);
@@ -309,26 +311,28 @@ class RealtimeAnalyzer {
         const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
         const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
         
-        const wasInSqueeze = bbResult.length > 1 ? (((bbResult[bbResult.length-2].upper - bbResult[bbResult.length-2].lower) / bbResult[bbResult.length-2].middle) <= squeezeThreshold) : false;
-        pairToUpdate.is_in_squeeze_15m = bbWidthPct <= squeezeThreshold;
-        
-        let score = pairToUpdate.score;
-        if (isInitialAnalysis) {
-            score = 'HOLD';
-        }
-
-        if (pairToUpdate.is_in_squeeze_15m && score === 'HOLD') {
-            score = 'COMPRESSION';
-        }
+        const currentSqueezeStatus = bbWidthPct <= squeezeThreshold;
+        pairToUpdate.is_in_squeeze_15m = currentSqueezeStatus;
 
         const volumes15m = klines15m.map(k => k.volume);
         const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
         pairToUpdate.volume_20_period_avg_15m = avgVolume;
 
-        if (!isInitialAnalysis) {
+        // --- Robust State Machine ---
+        let currentScore = pairToUpdate.score || 'HOLD';
+        let nextScore = currentScore;
+        
+        // 1. Reset transient states from the previous tick. A signal is a one-time event.
+        if (['STRONG BUY', 'FAKE_BREAKOUT'].includes(currentScore)) {
+            nextScore = currentSqueezeStatus ? 'COMPRESSION' : 'HOLD';
+        }
+
+        // 2. Check for a breakout event IF the score was 'COMPRESSION'.
+        if (nextScore === 'COMPRESSION') {
+            const wasInSqueeze = bbResult.length > 1 ? (((bbResult[bbResult.length-2].upper - bbResult[bbResult.length-2].lower) / bbResult[bbResult.length-2].middle) <= squeezeThreshold) : false;
             const breakoutCandle = klines15m[klines15m.length - 1];
             const isBreakout = breakoutCandle.close > lastBB.upper;
-
+            
             if (wasInSqueeze && isBreakout) {
                 this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
                 
@@ -339,30 +343,36 @@ class RealtimeAnalyzer {
                 this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
 
                 if (check1_Trend && check2_Volume && check3_RSI) {
-                    score = 'STRONG BUY';
-                    const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
-                    if (cooldownInfo && Date.now() < cooldownInfo.until) {
-                        score = 'COOLDOWN';
-                        this.log('TRADE', `Skipping trade for ${symbol} due to recent loss cooldown.`);
-                    } else {
-                         this.log('TRADE', `>>> FIRING TRADE for ${symbol} <<<`);
-                         const previousCandle = klines15m[klines15m.length - 2];
-                         tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
-                    }
+                    nextScore = 'STRONG BUY';
+                    const previousCandle = klines15m[klines15m.length - 2];
+                    tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
                 } else {
-                    score = 'FAKE_BREAKOUT';
+                    nextScore = 'FAKE_BREAKOUT';
                     this.log('SCANNER', `[${symbol}] Breakout failed validation.`);
                 }
-            } else if (score === 'STRONG BUY' || score === 'FAKE_BREAKOUT') {
-                // After a breakout attempt, revert to HOLD if not squeezing
-                score = pairToUpdate.is_in_squeeze_15m ? 'COMPRESSION' : 'HOLD';
             }
         }
 
-        // Update score and broadcast
-        pairToUpdate.score = score;
-        pairToUpdate.score_value = this.SCORE_MAP[score] || 50;
-        broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+        // 3. Handle normal transitions between HOLD and COMPRESSION.
+        if (nextScore === 'HOLD' && currentSqueezeStatus) {
+            nextScore = 'COMPRESSION';
+        } else if (nextScore === 'COMPRESSION' && !currentSqueezeStatus) {
+            nextScore = 'HOLD';
+        }
+        
+        // 4. Override with COOLDOWN status if applicable (highest priority)
+        const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
+        if (cooldownInfo && Date.now() < cooldownInfo.until) {
+            nextScore = 'COOLDOWN';
+        }
+
+        // Update score and broadcast if it changed
+        if (pairToUpdate.score !== nextScore) {
+            pairToUpdate.score = nextScore;
+            pairToUpdate.score_value = this.SCORE_MAP[nextScore] || 50;
+            this.log('SCANNER', `[15m ANALYSIS] ${symbol} - Score updated to: ${nextScore}`);
+            broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+        }
     }
 
     async hydrateSymbol(symbol) {
@@ -388,7 +398,7 @@ class RealtimeAnalyzer {
             this.klineData.get(symbol).set('15m', formattedKlines);
             
             // Perform an immediate analysis after hydrating
-            this.analyze15mIndicators(symbol, true);
+            this.analyze15mIndicators(symbol);
 
         } catch (error) {
             this.log('ERROR', `Failed to hydrate ${symbol}: ${error.message}`);
@@ -398,6 +408,7 @@ class RealtimeAnalyzer {
     }
 
     handleNew15mKline(symbol, kline) {
+        log('BINANCE_WS', `[15m KLINE] Received for ${symbol}. Close: ${kline.close}`);
         if (!this.klineData.has(symbol) || !this.klineData.get(symbol).has('15m')) {
             this.log('WARN', `Received 15m kline for un-hydrated symbol ${symbol}. Hydrating now.`);
             this.hydrateSymbol(symbol); // Hydrate if data is missing
@@ -566,6 +577,13 @@ async function runScannerCycle() {
 const tradingEngine = {
     evaluateAndOpenTrade(pair, slPriceReference) {
         if (!botState.isRunning) return;
+        
+        const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
+        if (cooldownInfo && Date.now() < cooldownInfo.until) {
+            log('TRADE', `Skipping trade for ${pair.symbol} due to recent loss cooldown.`);
+            pair.score = 'COOLDOWN'; // Ensure state reflects this
+            return;
+        }
 
         if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) {
             log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${botState.settings.MAX_OPEN_POSITIONS}) reached.`);
@@ -621,7 +639,7 @@ const tradingEngine = {
             realized_pnl: 0,
         };
 
-        log('TRADE', `Opening ${botState.tradingMode} trade for ${pair.symbol}: Qty=${quantity.toFixed(4)}, Entry=$${entryPrice}, SL=$${stopLoss.toFixed(4)}, TP=$${takeProfit.toFixed(4)}`);
+        log('TRADE', `>>> FIRING TRADE <<< Opening ${botState.tradingMode} trade for ${pair.symbol}: Qty=${quantity.toFixed(4)}, Entry=$${entryPrice}, SL=$${stopLoss.toFixed(4)}, TP=$${takeProfit.toFixed(4)}`);
         
         newTrade.status = 'FILLED'; // Simulate immediate fill
         botState.activePositions.push(newTrade);
@@ -689,299 +707,3 @@ const tradingEngine = {
                 this.closeTrade(trade.id, exitPrice, reason);
             });
             saveData('state');
-            broadcast({ type: 'POSITIONS_UPDATED' });
-        }
-    },
-    
-    executePartialSell(pos, currentPrice) {
-        const s = botState.settings;
-        const sellQty = pos.initial_quantity * (s.PARTIAL_TP_SELL_QTY_PCT / 100);
-        const profit = (currentPrice - pos.entry_price) * sellQty;
-
-        pos.quantity -= sellQty;
-        pos.realized_pnl = (pos.realized_pnl || 0) + profit;
-        pos.partial_tp_hit = true;
-        
-        log('TRADE', `[${pos.symbol}] Executed partial Take Profit. Sold ${sellQty.toFixed(4)} at $${currentPrice}, securing $${profit.toFixed(2)} profit.`);
-        
-        // After partial TP, immediately move SL to breakeven if not already there
-        if (!pos.is_at_breakeven) {
-            pos.stop_loss = pos.entry_price;
-            pos.is_at_breakeven = true;
-            log('TRADE', `[${pos.symbol}] Stop Loss moved to Break-even at $${pos.entry_price} after partial TP.`);
-        }
-    },
-
-    closeTrade(tradeId, exitPrice, reason = "Manual Close") {
-        const tradeIndex = botState.activePositions.findIndex(t => t.id === tradeId);
-        if (tradeIndex === -1) {
-            log('WARN', `Attempted to close non-existent trade ID: ${tradeId}`);
-            return null;
-        }
-
-        const [trade] = botState.activePositions.splice(tradeIndex, 1);
-        const entryValue = trade.entry_price * trade.initial_quantity;
-        const remainingExitValue = exitPrice * trade.quantity;
-        
-        const totalPnl = ((remainingExitValue - (trade.entry_price * trade.quantity)) + (trade.realized_pnl || 0));
-        
-        trade.exit_price = exitPrice;
-        trade.exit_time = new Date().toISOString();
-        trade.status = 'CLOSED';
-        trade.pnl = totalPnl;
-        trade.pnl_pct = (totalPnl / entryValue) * 100;
-        
-        botState.tradeHistory.push(trade);
-        
-        // Restore "capital" in virtual mode
-        botState.balance += (trade.entry_price * trade.quantity) + totalPnl;
-
-        log('TRADE', `Closed position for ${trade.symbol} due to ${reason}. PnL: $${totalPnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%).`);
-
-        // Handle cooldown on loss
-        if (totalPnl < 0) {
-            const cooldownUntil = Date.now() + (botState.settings.LOSS_COOLDOWN_HOURS * 60 * 60 * 1000);
-            botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
-            log('INFO', `${trade.symbol} is on a trading cooldown for ${botState.settings.LOSS_COOLDOWN_HOURS} hours.`);
-        }
-        
-        return trade;
-    }
-};
-
-// --- Authentication Middleware ---
-const isAuthenticated = (req, res, next) => {
-    if (req.session && req.session.isAuthenticated) {
-        return next();
-    }
-    log('WARN', `Unauthorized access attempt to ${req.originalUrl}`);
-    res.status(401).json({ message: 'Unauthorized. Please log in.' });
-};
-
-// --- API Routes ---
-// Public routes
-app.post('/api/login', async (req, res) => {
-    const { password } = req.body;
-    if (!password) {
-        return res.status(400).json({ success: false, message: 'Password is required.' });
-    }
-    try {
-        const isValid = await verifyPassword(password, botState.passwordHash);
-        if (isValid) {
-            req.session.isAuthenticated = true;
-            log('INFO', 'User successfully authenticated.');
-            res.json({ success: true, message: 'Login successful.' });
-        } else {
-            log('WARN', 'Failed login attempt: Invalid credentials.');
-            res.status(401).json({ success: false, message: 'Invalid credentials.' });
-        }
-    } catch (error) {
-        log('ERROR', `Login verification failed: ${error.message}`);
-        res.status(500).json({ success: false, message: 'Internal server error during login.' });
-    }
-});
-
-app.get('/api/check-session', (req, res) => {
-    res.json({ isAuthenticated: !!req.session.isAuthenticated });
-});
-
-// Protected routes
-app.post('/api/logout', isAuthenticated, (req, res) => {
-    req.session.destroy(err => {
-        if (err) {
-            return res.status(500).json({ success: false, message: 'Could not log out.' });
-        }
-        res.clearCookie('connect.sid');
-        res.status(204).send();
-    });
-});
-
-app.post('/api/change-password', isAuthenticated, async (req, res) => {
-    const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) {
-        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
-    }
-    try {
-        botState.passwordHash = await hashPassword(newPassword);
-        await saveData('auth');
-        log('INFO', 'Password has been updated successfully.');
-        res.json({ success: true, message: 'Password updated successfully.' });
-    } catch (error) {
-        log('ERROR', `Failed to update password: ${error.message}`);
-        res.status(500).json({ success: false, message: 'Failed to update password.' });
-    }
-});
-
-app.get('/api/settings', isAuthenticated, (req, res) => {
-    res.json(botState.settings);
-});
-
-app.post('/api/settings', isAuthenticated, async (req, res) => {
-    botState.settings = { ...botState.settings, ...req.body };
-    realtimeAnalyzer.updateSettings(botState.settings);
-    await saveData('settings');
-    // Rerun scanner to apply new filters like volume, exclusions etc.
-    runScannerCycle();
-    res.json({ success: true });
-});
-
-app.get('/api/status', isAuthenticated, (req, res) => {
-    res.json({
-        mode: botState.tradingMode,
-        balance: botState.balance,
-        positions: botState.activePositions.length,
-        monitored_pairs: botState.scannerCache.length,
-        top_pairs: botState.scannerCache.slice(0, 10).map(p => p.symbol),
-        max_open_positions: botState.settings.MAX_OPEN_POSITIONS,
-    });
-});
-
-app.get('/api/positions', isAuthenticated, (req, res) => {
-    res.json(botState.activePositions);
-});
-
-app.get('/api/history', isAuthenticated, (req, res) => {
-    res.json(botState.tradeHistory);
-});
-
-app.get('/api/performance-stats', isAuthenticated, (req, res) => {
-    const total_trades = botState.tradeHistory.length;
-    const winning_trades = botState.tradeHistory.filter(t => t.pnl > 0).length;
-    const total_pnl = botState.tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0);
-    res.json({
-        total_trades,
-        winning_trades,
-        losing_trades: total_trades - winning_trades,
-        total_pnl,
-        avg_pnl_pct: total_trades > 0 ? botState.tradeHistory.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / total_trades : 0,
-        win_rate: total_trades > 0 ? (winning_trades / total_trades) * 100 : 0,
-    });
-});
-
-app.get('/api/scanner', isAuthenticated, (req, res) => {
-    res.json(botState.scannerCache);
-});
-
-app.post('/api/close-trade/:id', isAuthenticated, (req, res) => {
-    const tradeId = parseInt(req.params.id, 10);
-    const tradeToClose = botState.activePositions.find(t => t.id === tradeId);
-    if (!tradeToClose) {
-        return res.status(404).json({ success: false, message: 'Trade not found' });
-    }
-    const currentPairState = botState.scannerCache.find(p => p.symbol === tradeToClose.symbol);
-    const exitPrice = currentPairState ? currentPairState.price : tradeToClose.entry_price;
-    
-    const closedTrade = tradingEngine.closeTrade(tradeId, exitPrice);
-    if(closedTrade) {
-        saveData('state');
-        broadcast({ type: 'POSITIONS_UPDATED' });
-        res.json({ success: true, trade: closedTrade });
-    } else {
-        res.status(404).json({ success: false, message: 'Could not close trade.' });
-    }
-});
-
-app.post('/api/clear-data', isAuthenticated, async (req, res) => {
-    log('WARN', 'Clearing all trade data and resetting balance as requested.');
-    botState.activePositions = [];
-    botState.tradeHistory = [];
-    botState.tradeIdCounter = 1;
-    botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
-    botState.recentlyLostSymbols.clear();
-    await saveData('state');
-    broadcast({ type: 'POSITIONS_UPDATED' });
-    res.json({ success: true });
-});
-
-app.post('/api/test-connection', isAuthenticated, async (req, res) => {
-    // Basic test: Fetch server time from Binance
-    try {
-        const response = await fetch('https://api.binance.com/api/v3/time');
-        if (response.ok) {
-            res.json({ success: true, message: 'Connexion à Binance réussie !' });
-        } else {
-            throw new Error(`Status: ${response.status}`);
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, message: `Échec de la connexion à Binance : ${error.message}` });
-    }
-});
-
-app.post('/api/test-coingecko', isAuthenticated, async (req, res) => {
-     const { apiKey } = req.body;
-     try {
-         const url = `https://pro-api.coingecko.com/api/v3/ping?x_cg_pro_api_key=${apiKey}`;
-         const response = await fetch(url);
-         const data = await response.json();
-         if (response.ok && data.gecko_says) {
-             res.json({ success: true, message: "Connexion à CoinGecko réussie !" });
-         } else {
-             throw new Error(data.error || `Status: ${response.status}`);
-         }
-     } catch (error) {
-         res.status(500).json({ success: false, message: `Échec de la connexion à CoinGecko : ${error.message}` });
-     }
-});
-
-app.get('/api/bot/status', isAuthenticated, (req, res) => {
-    res.json({ isRunning: botState.isRunning });
-});
-
-app.post('/api/bot/start', isAuthenticated, async (req, res) => {
-    if (!botState.isRunning) {
-        botState.isRunning = true;
-        await saveData('state');
-        log('INFO', 'Bot has been started.');
-        runScannerCycle(); // Run immediately
-    }
-    res.json({ success: true });
-});
-
-app.post('/api/bot/stop', isAuthenticated, async (req, res) => {
-    if (botState.isRunning) {
-        botState.isRunning = false;
-        await saveData('state');
-        log('INFO', 'Bot has been stopped.');
-    }
-    res.json({ success: true });
-});
-
-app.get('/api/mode', isAuthenticated, (req, res) => {
-    res.json({ mode: botState.tradingMode });
-});
-
-app.post('/api/mode', isAuthenticated, async (req, res) => {
-    const { mode } = req.body;
-    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
-        botState.tradingMode = mode;
-        await saveData('state');
-        log('INFO', `Trading mode switched to ${mode}.`);
-        res.json({ success: true, mode });
-    } else {
-        res.status(400).json({ success: false, message: 'Invalid mode.' });
-    }
-});
-
-// --- Serve Frontend ---
-const __dirname = path.resolve();
-app.use(express.static(path.join(__dirname, 'dist')));
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-// --- Start Server & Bot ---
-async function startBot() {
-    await loadData();
-    log('INFO', `Bot starting in ${botState.tradingMode} mode. Run status: ${botState.isRunning ? 'ACTIVE' : 'PAUSED'}.`);
-    
-    runScannerCycle();
-    scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
-    setInterval(() => tradingEngine.monitorAndManagePositions(), 2000); // Fast monitoring loop
-    connectToBinanceStreams();
-
-    server.listen(port, () => {
-        log('INFO', `Server listening on port ${port}`);
-    });
-}
-
-startBot();
