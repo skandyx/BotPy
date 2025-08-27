@@ -522,34 +522,36 @@ async function runScannerCycle() {
     try {
         const discoveredPairs = await scanner.runScan(botState.settings);
 
-        // --- INTELLIGENT MERGE LOGIC ---
-        // This logic ensures that real-time analysis data (like score) is preserved
-        // while updating background analysis data (like 4h trend).
-        const discoveredPairsMap = new Map(discoveredPairs.map(p => [p.symbol, p]));
-        const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
-        const finalSymbols = new Set(discoveredPairs.map(p => p.symbol));
+        // --- ROBUST MERGE LOGIC (v4) ---
+        // This logic gives absolute priority to existing real-time data to prevent overwrites.
         const newScannerCache = [];
         const newPairsToHydrate = [];
+        const existingPairsMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
 
-        for (const symbol of finalSymbols) {
-            const discoveredData = discoveredPairsMap.get(symbol);
-            const existingData = currentCacheMap.get(symbol);
-
-            if (existingData) {
-                // Pair already exists. Preserve real-time data from existingData
-                // and update background data from discoveredData.
-                existingData.volume = discoveredData.volume;
-                existingData.price_above_ema50_4h = discoveredData.price_above_ema50_4h;
-                existingData.rsi_1h = discoveredData.rsi_1h;
-                // Important: We push the MODIFIED existingData object, which keeps its score.
-                newScannerCache.push(existingData);
+        for (const discoveredPair of discoveredPairs) {
+            const existingPair = existingPairsMap.get(discoveredPair.symbol);
+            
+            if (existingPair) {
+                // This pair exists. We MUST preserve its real-time analysis data.
+                // We create a new object starting with the existing one (which has the correct score),
+                // then overwrite only the data that comes from the background scan.
+                const mergedPair = {
+                    ...existingPair,
+                    volume: discoveredPair.volume,
+                    price: discoveredPair.price, // Also update price from the latest ticker
+                    price_above_ema50_4h: discoveredPair.price_above_ema50_4h,
+                    rsi_1h: discoveredPair.rsi_1h,
+                };
+                newScannerCache.push(mergedPair);
             } else {
-                // This is a brand new pair. Add it and schedule for hydration.
-                newScannerCache.push(discoveredData);
-                newPairsToHydrate.push(symbol);
+                // This is a brand new pair, not seen before in the cache.
+                // Add it directly and mark it for kline data hydration.
+                newScannerCache.push(discoveredPair);
+                newPairsToHydrate.push(discoveredPair.symbol);
             }
         }
-
+        
+        // Atomically replace the old cache with the newly constructed one.
         botState.scannerCache = newScannerCache;
         
         // Hydrate only the newly added pairs.
