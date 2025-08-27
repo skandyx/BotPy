@@ -20,15 +20,6 @@ const formatPrice = (price: number | undefined | null): string => {
     return price.toFixed(8);
 };
 
-const getTrendJsx = (trend: ScannedPair['trend'] | ScannedPair['trend_4h']) => {
-    if (!trend) return <span className="text-gray-500">-</span>;
-    switch(trend) {
-        case 'UP': return <span className="text-green-400 flex items-center gap-1">▲ UP</span>;
-        case 'DOWN': return <span className="text-red-400 flex items-center gap-1">▼ DOWN</span>;
-        default: return <span className="text-gray-400">- NEUTRAL</span>;
-    }
-}
-
 const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     if (!score) return 'bg-gray-700 text-gray-200';
     switch (score) {
@@ -57,7 +48,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h', 'RSI Entrée'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -89,8 +80,10 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                         {snapshot?.score || 'N/A'}
                                     </span>
                                 </td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(snapshot?.trend_4h)}</td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi?.toFixed(1) || 'N/A'}</td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                     {snapshot?.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (snapshot?.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
+                                </td>
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <button
                                         onClick={(e) => {

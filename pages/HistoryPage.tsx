@@ -32,15 +32,6 @@ const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 };
 
-const getTrendJsx = (trend: ScannedPair['trend'] | ScannedPair['trend_4h']) => {
-    if (!trend) return <span className="text-gray-500">-</span>;
-    switch(trend) {
-        case 'UP': return <span className="text-green-400 flex items-center gap-1">▲ UP</span>;
-        case 'DOWN': return <span className="text-red-400 flex items-center gap-1">▼ DOWN</span>;
-        default: return <span className="text-gray-400">- NEUTRAL</span>;
-    }
-}
-
 const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     if (!score) return 'bg-gray-700 text-gray-200';
     switch (score) {
@@ -154,7 +145,7 @@ const HistoryPage: React.FC = () => {
         return;
     }
 
-    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 1m', 'Tendance 15m', 'Tendance 30m', 'Tendance 1h', 'Tendance 4h', 'RSI Entrée'];
+    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'];
     
     const rows = filteredAndSortedTrades.map(trade => [
         trade.id,
@@ -171,12 +162,8 @@ const HistoryPage: React.FC = () => {
         trade.pnl?.toFixed(4) || 'N/A',
         trade.pnl_pct?.toFixed(2) || 'N/A',
         trade.entry_snapshot?.score || 'N/A',
-        trade.entry_snapshot?.trend || 'N/A',
-        trade.entry_snapshot?.trend_15m || 'N/A',
-        trade.entry_snapshot?.trend_30m || 'N/A',
-        trade.entry_snapshot?.trend_1h || 'N/A',
-        trade.entry_snapshot?.trend_4h || 'N/A',
-        trade.entry_snapshot?.rsi?.toFixed(2) || 'N/A'
+        trade.entry_snapshot?.price_above_ema50_4h ? 'HAUSSIER' : 'BAISSIER',
+        trade.entry_snapshot?.rsi_1h?.toFixed(2) || 'N/A'
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -204,6 +191,7 @@ const HistoryPage: React.FC = () => {
   }
 
   const { totalPnl, winningTrades, losingTrades, winRate } = summaryStats;
+  const totalColumns = 14;
 
   return (
     <div className="space-y-6">
@@ -244,12 +232,8 @@ const HistoryPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Côté</th>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Entrée</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 1m</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 15m</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 30m</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 1h</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 4h</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">RSI Entrée</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 4h (EMA50)</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">RSI 1h Entrée</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Heure d'Entrée</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Heure de Sortie</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_price">Prix d'Entrée</SortableHeader>
@@ -270,12 +254,10 @@ const HistoryPage: React.FC = () => {
                                     {trade.entry_snapshot?.score || 'N/A'}
                                 </span>
                             </td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend_15m)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend_30m)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend_1h)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">{getTrendJsx(trade.entry_snapshot?.trend_4h)}</td>
-                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{trade.entry_snapshot?.rsi?.toFixed(1) || 'N/A'}</td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                {trade.entry_snapshot?.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (trade.entry_snapshot?.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
+                            </td>
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{trade.entry_snapshot?.rsi_1h?.toFixed(1) || 'N/A'}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{new Date(trade.entry_time).toLocaleString(undefined, dateTimeFormatOptions)}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{trade.exit_time ? new Date(trade.exit_time).toLocaleString(undefined, dateTimeFormatOptions) : 'N/A'}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatPrice(trade.entry_price)}</td>
@@ -288,7 +270,7 @@ const HistoryPage: React.FC = () => {
                     ))}
                      {filteredAndSortedTrades.length === 0 && (
                         <tr>
-                            <td colSpan={17} className="text-center py-10 text-gray-500">
+                            <td colSpan={totalColumns} className="text-center py-10 text-gray-500">
                                 Aucun trade trouvé pour le filtre actuel.
                             </td>
                         </tr>

@@ -25,8 +25,6 @@ SLIPPAGE_PCT=0.05
 # --- STRATEGY & SCANNER FILTERS ---
 MIN_VOLUME_USD=400000000
 MIN_VOLATILITY_PCT=0.5
-RSI_MIN_THRESHOLD=50
-ADX_MIN_THRESHOLD=25
 COINGECKO_SYNC_SECONDS=60
 EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"
 USE_VOLUME_CONFIRMATION=true
@@ -56,10 +54,6 @@ USE_RSI_OVERBOUGHT_FILTER=true
 # Le seuil RSI au-dessus duquel un signal d'achat sera ignoré (ex: 70).
 RSI_OVERBOUGHT_THRESHOLD=70
 
-# Exiger une confirmation de l'indicateur MACD avant d'ouvrir un trade. (true/false)
-# Ajoute une validation de momentum supplémentaire.
-USE_MACD_CONFIRMATION=true
-
 # Vendre une partie de la position à un objectif de profit préliminaire. (true/false)
 # Permet de sécuriser des gains tout en laissant le reste de la position courir.
 USE_PARTIAL_TAKE_PROFIT=false
@@ -73,23 +67,6 @@ PARTIAL_TP_SELL_QTY_PCT=50
 USE_DYNAMIC_POSITION_SIZING=false
 # Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
 STRONG_BUY_POSITION_SIZE_PCT=3.0
-
-# Exiger une confirmation du modèle ML avant d'ouvrir un trade. (true/false)
-USE_ML_MODEL_FILTER=false
-
-# --- FILTRE DE CONFLUENCE MULTI-TIMEFRAME ---
-# Si activé, exige que la tendance sur l'unité de temps correspondante soit HAUSSIÈRE pour valider un signal d'achat.
-USE_CONFLUENCE_FILTER_1M=true
-USE_CONFLUENCE_FILTER_15M=true
-USE_CONFLUENCE_FILTER_30M=true
-USE_CONFLUENCE_FILTER_1H=true
-USE_CONFLUENCE_FILTER_4H=true
-
-# (Fonctionnalité future) Empêcher l'ouverture de trades sur des paires fortement corrélées. (true/false)
-USE_CORRELATION_FILTER=false
-# (Fonctionnalité future) Mettre en pause le bot lors d'événements économiques majeurs. (true/false)
-USE_NEWS_FILTER=false
-
 
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance

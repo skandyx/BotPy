@@ -53,37 +53,19 @@ export interface ScannedPair {
     volume: number;
     price: number;
     priceDirection: 'up' | 'down' | 'neutral';
-    trend: 'UP' | 'DOWN' | 'NEUTRAL'; // 1m trend
-    trend_15m?: 'UP' | 'DOWN' | 'NEUTRAL';
-    trend_30m?: 'UP' | 'DOWN' | 'NEUTRAL';
-    trend_1h?: 'UP' | 'DOWN' | 'NEUTRAL';
-    trend_4h?: 'UP' | 'DOWN' | 'NEUTRAL';
-    marketRegime?: 'UPTREND' | 'DOWNTREND' | 'NEUTRAL'; // For market regime filter
-    rsi: number;
-    rsi_15m?: number;
-    rsi_30m?: number;
-    rsi_1h?: number;
-    rsi_4h?: number;
-    adx: number;
-    atr?: number; // 1m ATR
-    atr_15m?: number;
-    macd?: { MACD: number; signal: number; histogram: number; };
-    prev_macd_histogram?: number; // For detecting MACD cross
+    
+    // --- Core Strategy Indicators ---
+    price_above_ema50_4h?: boolean; // Master trend filter
+    rsi_1h?: number; // Safety filter (anti-overheating)
+    bollinger_bands_15m?: { upper: number; middle: number; lower: number; width_pct: number; }; // Preparation/Trigger
+    is_in_squeeze_15m?: boolean; // Preparation
+    volume_20_period_avg_15m?: number; // Confirmation
+    atr_15m?: number; // For ATR Stop Loss calculation
+    
+    // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
     score_value?: number; // Numerical representation of the score
-    volatility: number; // Volatility as a percentage
-    macd_4h?: { MACD: number; signal: number; histogram: number; };
-    ml_score?: number; // ML Model Confidence Score (0-100)
-    ml_prediction?: 'UP' | 'DOWN' | 'NEUTRAL'; // ML Model Prediction
-    volume_4h_increasing?: boolean;
-    price_above_sma200_1h?: boolean;
-    price_above_sma200_4h?: boolean;
-    
-    // --- Volatility Breakout Strategy Fields ---
-    price_above_ema50_4h?: boolean;
-    bollinger_bands_15m?: { upper: number; middle: number; lower: number; width_pct: number; };
-    is_in_squeeze_15m?: boolean;
-    volume_20_period_avg_15m?: number;
+    volatility: number; // 1m volatility as a percentage
 }
 
 
@@ -128,10 +110,8 @@ export interface BotSettings {
     
     // Market Scanner & Strategy Filters
     MIN_VOLUME_USD: number;
-    MIN_VOLATILITY_PCT: number;
-    RSI_MIN_THRESHOLD: number;
-    ADX_MIN_THRESHOLD: number;
-    COINGECKO_API_KEY: string; // Not used for scanner, but for general context
+    MIN_VOLATILITY_PCT: number; // This is a 1m indicator, but still part of the broader filter
+    COINGECKO_API_KEY: string;
     COINGECKO_SYNC_SECONDS: number;
     EXCLUDED_PAIRS: string;
     USE_VOLUME_CONFIRMATION: boolean;
@@ -156,9 +136,6 @@ export interface BotSettings {
     USE_RSI_OVERBOUGHT_FILTER: boolean;
     RSI_OVERBOUGHT_THRESHOLD: number;
     
-    // MACD Confirmation
-    USE_MACD_CONFIRMATION: boolean;
-
     // Partial Take Profit
     USE_PARTIAL_TAKE_PROFIT: boolean;
     PARTIAL_TP_TRIGGER_PCT: number; // PnL % to trigger the partial sell
@@ -167,18 +144,4 @@ export interface BotSettings {
     // Dynamic Position Sizing
     USE_DYNAMIC_POSITION_SIZING: boolean;
     STRONG_BUY_POSITION_SIZE_PCT: number;
-
-    // Machine Learning
-    USE_ML_MODEL_FILTER: boolean;
-
-    // Full Multi-Timeframe Confluence
-    USE_CONFLUENCE_FILTER_1M: boolean;
-    USE_CONFLUENCE_FILTER_15M: boolean;
-    USE_CONFLUENCE_FILTER_30M: boolean;
-    USE_CONFLUENCE_FILTER_1H: boolean;
-    USE_CONFLUENCE_FILTER_4H: boolean;
-
-    // Future-proofing (UI only for now)
-    USE_CORRELATION_FILTER: boolean;
-    USE_NEWS_FILTER: boolean;
 }

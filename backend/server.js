@@ -162,8 +162,6 @@ const loadData = async () => {
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 10000000,
             MIN_VOLATILITY_PCT: parseFloat(process.env.MIN_VOLATILITY_PCT) || 0.5,
-            RSI_MIN_THRESHOLD: parseFloat(process.env.RSI_MIN_THRESHOLD) || 50,
-            ADX_MIN_THRESHOLD: parseFloat(process.env.ADX_MIN_THRESHOLD) || 25,
             COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
             COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 3600, // Scan less often
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
@@ -180,20 +178,11 @@ const loadData = async () => {
             BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
             USE_RSI_OVERBOUGHT_FILTER: true,
             RSI_OVERBOUGHT_THRESHOLD: 75,
-            USE_MACD_CONFIRMATION: true,
             USE_PARTIAL_TAKE_PROFIT: false,
             PARTIAL_TP_TRIGGER_PCT: 1.5,
             PARTIAL_TP_SELL_QTY_PCT: 50,
             USE_DYNAMIC_POSITION_SIZING: false,
             STRONG_BUY_POSITION_SIZE_PCT: 3.0,
-            USE_ML_MODEL_FILTER: false,
-            USE_CONFLUENCE_FILTER_1M: true,
-            USE_CONFLUENCE_FILTER_15M: true,
-            USE_CONFLUENCE_FILTER_30M: true,
-            USE_CONFLUENCE_FILTER_1H: true,
-            USE_CONFLUENCE_FILTER_4H: true,
-            USE_CORRELATION_FILTER: false,
-            USE_NEWS_FILTER: false,
         };
         await saveData('settings');
     }
@@ -771,29 +760,44 @@ class BinanceWsClient {
 // --- Main Application Logic ---
 const runScannerCycle = async () => {
     try {
-        const analyzedPairs = await scannerService.runScan(botState.settings);
+        const newlyScannedPairs = await scannerService.runScan(botState.settings);
         
-        const oldSymbols = new Set(botState.scannerCache.map(p => p.symbol));
-        const newSymbols = new Set(analyzedPairs.map(p => p.symbol));
+        // Create a map of the current cache for efficient lookup.
+        const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
+        
+        const newCache = [];
+        const symbolsToMonitor = new Set();
 
-        // Update cache
-        botState.scannerCache = analyzedPairs;
+        for (const freshPair of newlyScannedPairs) {
+            symbolsToMonitor.add(freshPair.symbol);
+            const existingPair = currentCacheMap.get(freshPair.symbol);
 
-        // Hydrate kline data for newly discovered pairs
-        analyzedPairs.forEach(p => {
-             if (!oldSymbols.has(p.symbol)) {
-                // Pass the entire pair object to ensure the initial analysis has the context
-                // from the long-term scan (like price_above_ema50_4h).
-                 realtimeAnalyzer.hydrateSymbol(p);
-             }
-        });
+            if (existingPair) {
+                // It's an existing pair. Preserve real-time data and update long-term data.
+                const updatedPair = {
+                    ...existingPair, // Start with all the real-time data
+                    ...freshPair    // Overwrite with the latest long-term data
+                };
+                newCache.push(updatedPair);
+            } else {
+                // It's a brand new pair. Add it and trigger hydration.
+                log('SCANNER', `New pair detected: ${freshPair.symbol}. Hydrating 15m data.`);
+                newCache.push(freshPair);
+                realtimeAnalyzer.hydrateSymbol(freshPair);
+            }
+        }
 
-        // Update WebSocket subscriptions if the list of monitored pairs has changed
+        // Replace the old cache with the newly constructed one.
+        // This implicitly removes pairs that are no longer in the scan.
+        botState.scannerCache = newCache;
+
+        // Update WebSocket subscriptions with the full, correct list of monitored symbols.
+        const symbolsArray = Array.from(symbolsToMonitor);
         if (binanceWsClient) {
-            binanceWsClient.connect(Array.from(newSymbols));
+            binanceWsClient.connect(symbolsArray);
         } else {
             binanceWsClient = new BinanceWsClient(log, realtimeAnalyzer.handleKline.bind(realtimeAnalyzer), handlePriceUpdate);
-            binanceWsClient.connect(Array.from(newSymbols));
+            binanceWsClient.connect(symbolsArray);
         }
         
     } catch (error) {

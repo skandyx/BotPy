@@ -13,45 +13,30 @@ type ActiveProfile = ProfileName | 'PERSONNALISE';
 
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
     PRUDENT: {
-        // As per user checklist for "Safe Trades" & "Pro-Mode" feedback
         POSITION_SIZE_PCT: 2.0,
         MAX_OPEN_POSITIONS: 3,
         STOP_LOSS_PCT: 2.0, // Fallback, ATR is primary
         TAKE_PROFIT_PCT: 10.0, // Main TP is high, as partial TP and trailing are used
-        RSI_MIN_THRESHOLD: 50,
-        ADX_MIN_THRESHOLD: 25,
         REQUIRE_STRONG_BUY: true,
         USE_MARKET_REGIME_FILTER: true,
-        USE_CONFLUENCE_FILTER_1M: true,
-        USE_CONFLUENCE_FILTER_15M: true,
-        USE_CONFLUENCE_FILTER_30M: true,
-        USE_CONFLUENCE_FILTER_1H: true,
-        USE_CONFLUENCE_FILTER_4H: true,
         // --- Advanced Risk Management for this profile (updated) ---
         USE_ATR_STOP_LOSS: true,
         ATR_MULTIPLIER: 1.5,
         USE_TRAILING_STOP_LOSS: true,
         USE_AUTO_BREAKEVEN: true,
-        BREAKEVEN_TRIGGER_PCT: 1.0,  // Increased from 0.5 to give trade room
+        BREAKEVEN_TRIGGER_PCT: 1.0,
         USE_PARTIAL_TAKE_PROFIT: true,
-        PARTIAL_TP_TRIGGER_PCT: 0.8, // Secure gains faster as per user feedback
+        PARTIAL_TP_TRIGGER_PCT: 0.8,
         PARTIAL_TP_SELL_QTY_PCT: 50,
-        RSI_OVERBOUGHT_THRESHOLD: 60, // Stricter threshold to avoid FOMO entries
+        RSI_OVERBOUGHT_THRESHOLD: 60,
     },
     EQUILIBRE: {
         POSITION_SIZE_PCT: 3.0,
         MAX_OPEN_POSITIONS: 5,
         STOP_LOSS_PCT: 2.5,
         TAKE_PROFIT_PCT: 4.0,
-        RSI_MIN_THRESHOLD: 50,
-        ADX_MIN_THRESHOLD: 25,
         REQUIRE_STRONG_BUY: false,
         USE_MARKET_REGIME_FILTER: true,
-        USE_CONFLUENCE_FILTER_1M: true,
-        USE_CONFLUENCE_FILTER_15M: true,
-        USE_CONFLUENCE_FILTER_30M: true,
-        USE_CONFLUENCE_FILTER_1H: true,
-        USE_CONFLUENCE_FILTER_4H: true,
         // Reset advanced settings to default
         USE_ATR_STOP_LOSS: false,
         ATR_MULTIPLIER: 1.5,
@@ -66,15 +51,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         MAX_OPEN_POSITIONS: 8,
         STOP_LOSS_PCT: 3.5,
         TAKE_PROFIT_PCT: 6.0,
-        RSI_MIN_THRESHOLD: 50,
-        ADX_MIN_THRESHOLD: 22,
         REQUIRE_STRONG_BUY: false,
         USE_MARKET_REGIME_FILTER: true,
-        USE_CONFLUENCE_FILTER_1M: true,
-        USE_CONFLUENCE_FILTER_15M: true,
-        USE_CONFLUENCE_FILTER_30M: false,
-        USE_CONFLUENCE_FILTER_1H: true,
-        USE_CONFLUENCE_FILTER_4H: false,
         // Reset advanced settings
         USE_ATR_STOP_LOSS: false,
         USE_AUTO_BREAKEVEN: false,
@@ -96,9 +74,7 @@ const tooltips: Record<string, string> = {
     TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
     SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
-    MIN_VOLATILITY_PCT: "La volatilité de prix minimale qu'une paire doit avoir pour être considérée pour un trade. Évite d'entrer dans des trades sur des marchés plats et latéraux.",
-    RSI_MIN_THRESHOLD: "Le seuil RSI minimum requis pour valider un signal d'achat. Une valeur de 50 est standard, indiquant un momentum haussier.",
-    ADX_MIN_THRESHOLD: "Le seuil ADX minimum requis pour valider un signal d'achat. Une valeur de 25 est standard, indiquant une tendance forte.",
+    MIN_VOLATILITY_PCT: "La volatilité de prix minimale sur 1m qu'une paire doit avoir pour être considérée pour un trade. Évite d'entrer dans des trades sur des marchés plats et latéraux.",
     COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
     COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
@@ -114,20 +90,11 @@ const tooltips: Record<string, string> = {
     BREAKEVEN_TRIGGER_PCT: "Le pourcentage de profit (%) auquel déclencher le passage au seuil de rentabilité (ex: 0.5% signifie que lorsque le profit atteint 0.5%, le SL est déplacé au prix d'entrée).",
     USE_RSI_OVERBOUGHT_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
     RSI_OVERBOUGHT_THRESHOLD: "Le niveau RSI au-dessus duquel un signal de trade sera ignoré (ex: 70).",
-    USE_MACD_CONFIRMATION: "Exiger une confirmation de l'indicateur MACD (par exemple, un histogramme positif) avant d'ouvrir un trade, ajoutant une couche de validation de momentum.",
     USE_PARTIAL_TAKE_PROFIT: "Vendre une partie de la position à un objectif de profit préliminaire et laisser le reste courir avec le trailing stop loss.",
     PARTIAL_TP_TRIGGER_PCT: "Le pourcentage de profit (%) auquel vendre la première partie de la position.",
     PARTIAL_TP_SELL_QTY_PCT: "Le pourcentage (%) de la quantité de position initiale à vendre pour la prise de profit partielle.",
     USE_DYNAMIC_POSITION_SIZING: "Allouer une taille de position plus importante pour les signaux 'STRONG BUY' de la plus haute qualité par rapport aux signaux 'BUY' réguliers.",
-    STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
-    USE_ML_MODEL_FILTER: "Si activé, le bot exigera une confirmation du modèle d'Apprentissage Automatique interne (la prédiction ML doit être 'HAUSSE' avec un score élevé) avant d'ouvrir un trade.",
-    USE_CONFLUENCE_FILTER_4H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 4 heures est également en HAUSSE.",
-    USE_CONFLUENCE_FILTER_1H: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 heure est également en HAUSSE.",
-    USE_CONFLUENCE_FILTER_30M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 30 minutes est également en HAUSSE.",
-    USE_CONFLUENCE_FILTER_15M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 15 minutes est également en HAUSSE.",
-    USE_CONFLUENCE_FILTER_1M: "Filtre de Confluence : Si activé, un signal d'achat n'est valide que si la tendance sur 1 minute (le signal d'entrée) est également en HAUSSE.",
-    USE_CORRELATION_FILTER: "(Fonctionnalité future) Empêcher l'ouverture de trades sur plusieurs paires fortement corrélées en même temps pour diversifier le risque.",
-    USE_NEWS_FILTER: "(Fonctionnalité future) Mettre automatiquement en pause le bot lors d'événements d'actualité économique majeurs pour éviter une volatilité extrême."
+    STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -392,8 +359,6 @@ const SettingsPage: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        {renderField('MIN_VOLUME_USD', "Volume Min (USD)")}
                        {renderField('MIN_VOLATILITY_PCT', "Volatilité Min (%)")}
-                       {renderField('RSI_MIN_THRESHOLD', "Seuil RSI Minimum")}
-                       {renderField('ADX_MIN_THRESHOLD', "Seuil ADX Minimum")}
                        {renderField('COINGECKO_SYNC_SECONDS', "Synchro Scanner (secondes)")}
                        {renderField('LOSS_COOLDOWN_HOURS', "Cooldown sur Perte (Heures)")}
                         <div className="md:col-span-2">
@@ -453,29 +418,8 @@ const SettingsPage: React.FC = () => {
                         {renderToggle('USE_PARTIAL_TAKE_PROFIT', "Utiliser le Take Profit Partiel")}
                         {renderField('PARTIAL_TP_TRIGGER_PCT', "Déclencheur TP Partiel (%)")}
                         {renderField('PARTIAL_TP_SELL_QTY_PCT', "Qté Vendue TP Partiel (%)")}
-                        {renderToggle('USE_MACD_CONFIRMATION', "Utiliser la Confirmation MACD")}
-                    </div>
-                     {/* --- Expert --- */}
-                    <div className="grid grid-cols-1 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="col-span-1 text-base font-semibold text-[#f0b90b]">Expert</div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
-                            {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
-                             <div></div>
-                            {renderToggle('USE_ML_MODEL_FILTER', "Utiliser le filtre du modèle ML")}
-                            {renderToggle('USE_CORRELATION_FILTER', "Utiliser le filtre de Corrélation")}
-                            {renderToggle('USE_NEWS_FILTER', "Utiliser le filtre de Nouvelles")}
-                        </div>
-                         <div className="pt-4 border-t border-gray-700 mt-4">
-                            <label className="text-base font-medium text-gray-300">Filtre de Confluence Multi-Temporelle</label>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6 mt-4">
-                                {renderToggle('USE_CONFLUENCE_FILTER_1M', "Tendance 1m")}
-                                {renderToggle('USE_CONFLUENCE_FILTER_15M', "Tendance 15m")}
-                                {renderToggle('USE_CONFLUENCE_FILTER_30M', "Tendance 30m")}
-                                {renderToggle('USE_CONFLUENCE_FILTER_1H', "Tendance 1h")}
-                                {renderToggle('USE_CONFLUENCE_FILTER_4H', "Tendance 4h")}
-                            </div>
-                        </div>
+                         {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
+                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
                     </div>
                 </div>
             </div>
