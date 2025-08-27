@@ -70,6 +70,7 @@ export interface ScannedPair {
     macd?: { MACD: number; signal: number; histogram: number; };
     prev_macd_histogram?: number; // For detecting MACD cross
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
+    score_value?: number; // Numerical representation of the score
     volatility: number; // Volatility as a percentage
     macd_4h?: { MACD: number; signal: number; histogram: number; };
     ml_score?: number; // ML Model Confidence Score (0-100)

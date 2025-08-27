@@ -264,6 +264,14 @@ class RealtimeAnalyzer {
         this.hydrating = new Set();
         this.SQUEEZE_PERCENTILE_THRESHOLD = 0.15;
         this.SQUEEZE_LOOKBACK = 50;
+        this.SCORE_MAP = {
+            'STRONG BUY': 100,
+            'BUY': 90,
+            'COMPRESSION': 80,
+            'HOLD': 50,
+            'FAKE_BREAKOUT': 30,
+            'COOLDOWN': 10
+        };
     }
 
     updateSettings(newSettings) {
@@ -271,7 +279,10 @@ class RealtimeAnalyzer {
         this.settings = newSettings;
     }
 
-    analyze15mIndicators(symbol, isInitialAnalysis = false) {
+    // First parameter can be a symbol (string) from WebSocket or a pair object from initial scan
+    analyze15mIndicators(symbolOrPair, isInitialAnalysis = false) {
+        const symbol = typeof symbolOrPair === 'string' ? symbolOrPair : symbolOrPair.symbol;
+        
         const symbolKlines = this.klineData.get(symbol);
         if (!symbolKlines) return;
 
@@ -281,15 +292,27 @@ class RealtimeAnalyzer {
             return;
         }
         
-        const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
-        if (!pairToUpdate) return;
+        const pairToUpdate = typeof symbolOrPair === 'string' 
+            ? botState.scannerCache.find(p => p.symbol === symbol) 
+            : symbolOrPair;
+
+        if (!pairToUpdate) {
+            this.log('WARN', `[15m] Could not find pair ${symbol} in cache for analysis.`);
+            return;
+        }
         
         this.log('SCANNER', `[15m] Analyzing ${symbol} for breakout conditions...`);
         const closes15m = klines15m.map(d => d.close);
+        const highs15m = klines15m.map(d => d.high);
+        const lows15m = klines15m.map(d => d.low);
 
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
+        const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
         const lastBB = bbResult[bbResult.length - 1];
-        if (!lastBB) return;
+        const lastATR = atrResult[atrResult.length - 1];
+        if (!lastBB || !lastATR) return;
+        
+        pairToUpdate.atr_15m = lastATR;
         
         const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
         pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
@@ -301,7 +324,11 @@ class RealtimeAnalyzer {
         const wasInSqueeze = bbResult.length > 1 ? (((bbResult[bbResult.length-2].upper - bbResult[bbResult.length-2].lower) / bbResult[bbResult.length-2].middle) <= squeezeThreshold) : false;
         pairToUpdate.is_in_squeeze_15m = bbWidthPct <= squeezeThreshold;
         
-        let score = isInitialAnalysis ? 'HOLD' : pairToUpdate.score;
+        let score = pairToUpdate.score;
+        if (isInitialAnalysis) {
+            score = 'HOLD';
+        }
+
         if (pairToUpdate.is_in_squeeze_15m && score === 'HOLD') {
             score = 'COMPRESSION';
         }
@@ -341,10 +368,12 @@ class RealtimeAnalyzer {
         }
         
         pairToUpdate.score = score;
+        pairToUpdate.score_value = this.SCORE_MAP[score] || 50;
         broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
     }
 
-    async hydrateSymbol(symbol) {
+    async hydrateSymbol(pairToHydrate) {
+        const symbol = pairToHydrate.symbol;
         if (this.hydrating.has(symbol) || this.klineData.has(symbol)) return;
         this.hydrating.add(symbol);
         this.log('INFO', `[Analyzer] Hydrating initial kline data for ${symbol} for breakout strategy...`);
@@ -363,7 +392,8 @@ class RealtimeAnalyzer {
             this.klineData.set(symbol, symbolData);
             this.log('INFO', `[Analyzer] Successfully hydrated ${symbol}. Performing initial analysis.`);
             
-            this.analyze15mIndicators(symbol, true);
+            // Perform analysis directly on the pair object passed in.
+            this.analyze15mIndicators(pairToHydrate, true);
 
         } catch (error) {
             this.log('ERROR', `[Analyzer] Failed to hydrate klines for ${symbol}: ${error.message}`);
@@ -377,7 +407,15 @@ class RealtimeAnalyzer {
         if (!this.settings || Object.keys(this.settings).length === 0) return;
 
         const symbol = klineMsg.s;
-        if (!this.klineData.has(symbol)) await this.hydrateSymbol(symbol);
+        if (!this.klineData.has(symbol)) {
+            const pairToHydrate = botState.scannerCache.find(p => p.symbol === symbol);
+            if (pairToHydrate) {
+                await this.hydrateSymbol(pairToHydrate);
+            } else {
+                // Not a symbol we are actively monitoring, ignore kline.
+                return;
+            }
+        }
         
         const symbolKlines = this.klineData.get(symbol);
         if (!symbolKlines) return;
@@ -425,30 +463,55 @@ let binanceWsClient = null;
 
 // --- Trading Engine ---
 const tradingEngine = {
-    async evaluateAndOpenTrade(pair, stopLossPrice) {
+    async evaluateAndOpenTrade(pair, structuralStopLoss) {
         if (!botState.isRunning) return;
         if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) return;
         if (botState.activePositions.some(p => p.symbol === pair.symbol)) return;
-        if (pair.score !== 'STRONG BUY') return; // Only trade the highest quality signal
+
+        // Respect REQUIRE_STRONG_BUY setting from profiles
+        const allowedScores = botState.settings.REQUIRE_STRONG_BUY ? ['STRONG BUY'] : ['STRONG BUY', 'BUY'];
+        if (!allowedScores.includes(pair.score)) return;
 
         log('TRADE', `Valid trade signal for ${pair.symbol} confirmed. Opening position...`);
-        this.openPosition(pair, stopLossPrice);
+        this.openPosition(pair, structuralStopLoss);
     },
 
-    async openPosition(pair, stopLossPrice) {
+    async openPosition(pair, structuralStopLoss) {
         const { settings } = botState;
-        const entryPrice = pair.price; // Use the most current price for entry
+        const entryPrice = pair.price;
 
-        // --- Risk/Reward Calculation ---
-        const riskPerShare = entryPrice - stopLossPrice;
-        if (riskPerShare <= 0) {
-            log('WARN', `Invalid SL price for ${pair.symbol}. Entry: ${entryPrice}, SL: ${stopLossPrice}. Aborting trade.`);
+        // 1. Determine Position Size based on profile settings
+        let positionSizePct = settings.POSITION_SIZE_PCT;
+        if (settings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
+            positionSizePct = settings.STRONG_BUY_POSITION_SIZE_PCT;
+        }
+        const positionSizeUSD = botState.balance * (positionSizePct / 100);
+        const quantity = positionSizeUSD / entryPrice;
+
+        // 2. Determine Stop Loss based on profile settings
+        let stopLoss;
+        if (settings.USE_ATR_STOP_LOSS && pair.atr_15m) {
+            stopLoss = entryPrice - (pair.atr_15m * settings.ATR_MULTIPLIER);
+            log('TRADE', `[SL] Using ATR for ${pair.symbol}. SL set to ${stopLoss.toFixed(4)}.`);
+        } else {
+            stopLoss = structuralStopLoss; // From breakout candle structure
+            log('TRADE', `[SL] Using structural SL for ${pair.symbol}. SL set to ${stopLoss.toFixed(4)}.`);
+        }
+
+        // SL safety net: ensure it's not wider than the percentage-based SL
+        const fallbackSl = entryPrice * (1 - settings.STOP_LOSS_PCT / 100);
+        if (stopLoss < fallbackSl) {
+            stopLoss = fallbackSl;
+            log('TRADE', `[SL] Adjusted SL for ${pair.symbol} to fallback percentage: ${stopLoss.toFixed(4)}.`);
+        }
+
+        if (stopLoss >= entryPrice) {
+            log('WARN', `Invalid SL for ${pair.symbol}: SL (${stopLoss}) is >= entry price (${entryPrice}). Aborting trade.`);
             return;
         }
-        const takeProfitPrice = entryPrice + (riskPerShare * 2); // 2:1 Risk/Reward Ratio
 
-        const positionSizeUSD = botState.balance * (settings.POSITION_SIZE_PCT / 100);
-        const quantity = positionSizeUSD / entryPrice;
+        // 3. Determine Take Profit based on profile settings
+        const takeProfit = entryPrice * (1 + settings.TAKE_PROFIT_PCT / 100);
 
         const newTrade = {
             id: botState.tradeIdCounter++,
@@ -458,21 +521,23 @@ const tradingEngine = {
             entry_price: entryPrice,
             quantity,
             initial_quantity: quantity,
-            stop_loss: stopLossPrice,
-            take_profit: takeProfitPrice,
+            stop_loss: stopLoss,
+            take_profit: takeProfit,
             highest_price_since_entry: entryPrice,
             entry_time: new Date().toISOString(),
             status: 'PENDING',
             pnl: 0,
             pnl_pct: 0,
-            entry_snapshot: { ...pair }
+            entry_snapshot: { ...pair },
+            is_at_breakeven: false,
+            partial_tp_hit: false,
+            realized_pnl: 0,
         };
         
-        // --- TODO: REAL TRADING LOGIC ---
-        newTrade.status = 'FILLED';
+        newTrade.status = 'FILLED'; // Simulate fill for now
 
         botState.activePositions.push(newTrade);
-        log('TRADE', `Opened new ${botState.tradingMode} position for ${quantity.toFixed(4)} ${pair.symbol} @ $${entryPrice}. SL: ${stopLossPrice}, TP: ${takeProfitPrice}`);
+        log('TRADE', `Opened new ${botState.tradingMode} position for ${quantity.toFixed(4)} ${pair.symbol} @ $${entryPrice}. SL: ${stopLoss.toFixed(4)}, TP: ${takeProfit.toFixed(4)}`);
         
         broadcast({ type: 'POSITIONS_UPDATED' });
         await saveData('state');
@@ -480,12 +545,39 @@ const tradingEngine = {
 
     monitorPositions(priceUpdate) {
         if (!botState.isRunning) return;
+        const { settings } = botState;
+
         botState.activePositions.forEach(pos => {
             if (pos.symbol === priceUpdate.symbol) {
                 const currentPrice = priceUpdate.price;
                 pos.highest_price_since_entry = Math.max(pos.highest_price_since_entry, currentPrice);
 
-                // --- Exit Condition Checks ---
+                const entryValue = pos.entry_price * pos.initial_quantity;
+                const pnl = (currentPrice - pos.entry_price) * pos.quantity + (pos.realized_pnl || 0);
+                const pnl_pct = entryValue !== 0 ? (pnl / entryValue) * 100 : 0;
+
+                // 1. Auto Break-even Logic
+                if (settings.USE_AUTO_BREAKEVEN && !pos.is_at_breakeven && pnl_pct >= settings.BREAKEVEN_TRIGGER_PCT) {
+                    pos.stop_loss = pos.entry_price;
+                    pos.is_at_breakeven = true;
+                    log('TRADE', `[BREAK-EVEN] Moved SL for ${pos.symbol} to entry price ${pos.entry_price}.`);
+                }
+
+                // 2. Partial Take Profit Logic
+                if (settings.USE_PARTIAL_TAKE_PROFIT && !pos.partial_tp_hit && pnl_pct >= settings.PARTIAL_TP_TRIGGER_PCT) {
+                    this.executePartialTakeProfit(pos.id, currentPrice);
+                }
+
+                // 3. Trailing Stop Loss Logic
+                if (settings.USE_TRAILING_STOP_LOSS) {
+                    const newTrailingStop = pos.highest_price_since_entry * (1 - settings.TRAILING_STOP_LOSS_PCT / 100);
+                    if (newTrailingStop > pos.stop_loss) {
+                        pos.stop_loss = newTrailingStop;
+                        log('TRADE', `[TRAILING] Updated SL for ${pos.symbol} to ${newTrailingStop.toFixed(4)}.`);
+                    }
+                }
+
+                // 4. Final Exit Condition Checks (using potentially updated SL)
                 if (currentPrice <= pos.stop_loss) {
                     log('TRADE', `${pos.symbol} hit Stop Loss at $${currentPrice}. Closing position.`);
                     this.closePosition(pos.id, currentPrice, 'STOP_LOSS');
@@ -497,33 +589,62 @@ const tradingEngine = {
         });
     },
 
+    async executePartialTakeProfit(tradeId, currentPrice) {
+        const tradeIndex = botState.activePositions.findIndex(p => p.id === tradeId);
+        if (tradeIndex === -1) return;
+
+        const trade = botState.activePositions[tradeIndex];
+        const { settings } = botState;
+        
+        const qtyToSell = trade.initial_quantity * (settings.PARTIAL_TP_SELL_QTY_PCT / 100);
+        if (qtyToSell >= trade.quantity) {
+            log('WARN', `[Partial TP] Qty to sell (${qtyToSell}) is >= remaining qty (${trade.quantity}). Skipping for ${trade.symbol}.`);
+            trade.partial_tp_hit = true; // Still mark as hit to prevent re-triggering
+            return;
+        }
+
+        const partialPnl = (currentPrice - trade.entry_price) * qtyToSell;
+        
+        botState.balance += partialPnl;
+        
+        trade.quantity -= qtyToSell;
+        trade.realized_pnl = (trade.realized_pnl || 0) + partialPnl;
+        trade.partial_tp_hit = true;
+
+        log('TRADE', `[PARTIAL TP] Sold ${qtyToSell.toFixed(4)} of ${trade.symbol} at ${currentPrice.toFixed(4)}. Realized PnL: $${partialPnl.toFixed(2)}.`);
+
+        await saveData('state');
+        broadcast({ type: 'POSITIONS_UPDATED' });
+    },
+
     async closePosition(tradeId, exitPrice, reason = 'MANUAL') {
         const tradeIndex = botState.activePositions.findIndex(p => p.id === tradeId);
         if (tradeIndex === -1) return null;
         
         const trade = botState.activePositions[tradeIndex];
-        const pnl = (exitPrice - trade.entry_price) * trade.quantity;
+        const pnlOnRemaining = (exitPrice - trade.entry_price) * trade.quantity;
+        const totalPnl = (trade.realized_pnl || 0) + pnlOnRemaining;
 
         const closedTrade = {
             ...trade,
             exit_price: exitPrice,
             exit_time: new Date().toISOString(),
             status: 'CLOSED',
-            pnl,
-            pnl_pct: (pnl / (trade.entry_price * trade.quantity)) * 100
+            pnl: totalPnl,
+            pnl_pct: (totalPnl / (trade.entry_price * trade.initial_quantity)) * 100
         };
 
-        botState.balance += pnl;
+        botState.balance += pnlOnRemaining;
         botState.tradeHistory.push(closedTrade);
         botState.activePositions.splice(tradeIndex, 1);
 
-        if (pnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
+        if (totalPnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
             const cooldownUntil = Date.now() + botState.settings.LOSS_COOLDOWN_HOURS * 60 * 60 * 1000;
             botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
             log('TRADE', `[COOLDOWN] ${trade.symbol} is on cooldown until ${new Date(cooldownUntil).toLocaleTimeString()}`);
         }
         
-        log('TRADE', `Closed position for ${trade.symbol}. Reason: ${reason}. PnL: $${pnl.toFixed(2)}.`);
+        log('TRADE', `Closed position for ${trade.symbol}. Reason: ${reason}. PnL: $${totalPnl.toFixed(2)}.`);
         
         broadcast({ type: 'POSITIONS_UPDATED' });
         await saveData('state');
@@ -661,7 +782,9 @@ const runScannerCycle = async () => {
         // Hydrate kline data for newly discovered pairs
         analyzedPairs.forEach(p => {
              if (!oldSymbols.has(p.symbol)) {
-                 realtimeAnalyzer.hydrateSymbol(p.symbol);
+                // Pass the entire pair object to ensure the initial analysis has the context
+                // from the long-term scan (like price_above_ema50_4h).
+                 realtimeAnalyzer.hydrateSymbol(p);
              }
         });
 
@@ -866,7 +989,7 @@ app.post('/api/test-connection', isAuthenticated, async (req, res) => {
             res.status(response.status).json({ success: false, message: 'Binance API connection failed.' });
         }
     } catch (e) {
-        res.status(500).json({ success: false, message: 'Connection test failed.' });
+        res.status(500).json({ success: false, message: `Connection test failed: ${e.message}` });
     }
 });
 

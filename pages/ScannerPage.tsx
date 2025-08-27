@@ -55,7 +55,7 @@ const EmptyScannerIcon = () => (
 
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
-  const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score_value', direction: 'desc' });
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const { settings } = useAppContext();
 
@@ -85,18 +85,9 @@ const ScannerPage: React.FC = () => {
     let sortablePairs = [...pairs];
     if (sortConfig !== null) {
       sortablePairs.sort((a, b) => {
-        let aVal, bVal;
+        const aVal = a[sortConfig.key];
+        const bVal = b[sortConfig.key];
         
-        // Custom sorting for score to prioritize 'STRONG BUY'
-        if (sortConfig.key === 'score') {
-            const scoreOrder = { 'STRONG BUY': 5, 'COMPRESSION': 4, 'BUY': 3, 'HOLD': 2, 'FAKE_BREAKOUT': 1, 'COOLDOWN': 0 };
-            aVal = scoreOrder[a.score] || 0;
-            bVal = scoreOrder[b.score] || 0;
-        } else {
-            aVal = a[sortConfig.key];
-            bVal = b[sortConfig.key];
-        }
-
         if (aVal === undefined || aVal === null) return 1;
         if (bVal === undefined || bVal === null) return -1;
         
@@ -112,16 +103,13 @@ const ScannerPage: React.FC = () => {
     return sortablePairs;
   }, [pairs, sortConfig]);
   
-  const getScoreBadgeClass = (score: ScannedPair['score']) => {
-    switch (score) {
-        case 'STRONG BUY': return 'bg-green-600 text-green-100';
-        case 'BUY': return 'bg-green-800 text-green-200';
-        case 'COMPRESSION': return 'bg-sky-700 text-sky-200';
-        case 'HOLD': return 'bg-gray-700 text-gray-200';
-        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
-        case 'FAKE_BREAKOUT': return 'bg-orange-800 text-orange-200';
-        default: return 'bg-gray-700 text-gray-200';
-    }
+  const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
+    if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
+    if (scoreValue >= 95) return 'bg-green-600 text-green-100'; // STRONG BUY
+    if (scoreValue >= 75) return 'bg-sky-700 text-sky-200'; // COMPRESSION
+    if (scoreValue >= 45) return 'bg-gray-700 text-gray-200'; // HOLD
+    if (scoreValue >= 25) return 'bg-orange-800 text-orange-200'; // FAKE BREAKOUT
+    return 'bg-blue-800 text-blue-200'; // COOLDOWN
   };
 
   if (!settings) {
@@ -157,7 +145,7 @@ const ScannerPage: React.FC = () => {
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score">Score</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h (EMA50)</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
@@ -181,8 +169,8 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
-                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(pair.score)}`}>
-                                            {pair.score}
+                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreValueBadgeClass(pair.score_value)}`}>
+                                            {pair.score_value?.toFixed(0) ?? 'N/A'}
                                         </span>
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
@@ -191,8 +179,15 @@ const ScannerPage: React.FC = () => {
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${rsi1hClass}`}>{pair.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
-                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${pair.is_in_squeeze_15m ? 'text-sky-400 font-bold' : 'text-gray-300'}`}>
-                                      {bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                        <div className="flex items-center space-x-2">
+                                            <span>{bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}</span>
+                                            {pair.is_in_squeeze_15m && (
+                                                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-sky-800 text-sky-200" title="Bollinger Bands Squeeze Detected">
+                                                    SQUEEZE
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             )

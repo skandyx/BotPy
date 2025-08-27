@@ -35,26 +35,33 @@ REQUIRE_STRONG_BUY=false
 LOSS_COOLDOWN_HOURS=4
 
 # --- ADVANCED STRATEGY & RISK MANAGEMENT ---
+# NOTE: Ces valeurs sont les DÉFAUTS. Sélectionner un profil (ex: PRUDENT) dans l'interface
+# surchargera certains de ces paramètres pour appliquer une stratégie spécifique.
+
 # Utiliser un Stop Loss dynamique basé sur l'ATR (Average True Range). (true/false)
-# Si activé, le Trailing Stop Loss utilisera également l'ATR pour s'adapter à la volatilité.
+# S'adapte à la volatilité du marché. Recommandé pour le profil PRUDENT.
 USE_ATR_STOP_LOSS=false
 # Le multiplicateur à appliquer à l'ATR pour définir la distance du Stop Loss (ex: 1.5).
 ATR_MULTIPLIER=1.5
 
 # Déplacer automatiquement le Stop Loss au point d'entrée une fois qu'un trade est profitable. (true/false)
+# Élimine le risque qu'un trade gagnant se transforme en perte.
 USE_AUTO_BREAKEVEN=true
 # Le pourcentage de profit (%) pour déclencher le break-even (ex: 0.5 pour +0.5%).
 BREAKEVEN_TRIGGER_PCT=0.5
 
 # Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
+# Filtre de sécurité pour éviter d'acheter au sommet.
 USE_RSI_OVERBOUGHT_FILTER=true
 # Le seuil RSI au-dessus duquel un signal d'achat sera ignoré (ex: 70).
 RSI_OVERBOUGHT_THRESHOLD=70
 
 # Exiger une confirmation de l'indicateur MACD avant d'ouvrir un trade. (true/false)
+# Ajoute une validation de momentum supplémentaire.
 USE_MACD_CONFIRMATION=true
 
 # Vendre une partie de la position à un objectif de profit préliminaire. (true/false)
+# Permet de sécuriser des gains tout en laissant le reste de la position courir.
 USE_PARTIAL_TAKE_PROFIT=false
 # Le pourcentage de profit (%) pour déclencher la vente partielle.
 PARTIAL_TP_TRIGGER_PCT=1.5
@@ -62,6 +69,7 @@ PARTIAL_TP_TRIGGER_PCT=1.5
 PARTIAL_TP_SELL_QTY_PCT=50
 
 # Allouer une plus grande taille de position pour les signaux de haute qualité 'STRONG BUY'. (true/false)
+# Permet de capitaliser davantage sur les meilleures opportunités.
 USE_DYNAMIC_POSITION_SIZING=false
 # Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
 STRONG_BUY_POSITION_SIZE_PCT=3.0

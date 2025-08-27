@@ -80,15 +80,19 @@ A `STRONG BUY` signal is triggered only if all 5 of the following conditions are
     *   **Condition:** The RSI is **below 75**, indicating the market is not yet in an extreme overbought zone.
 
 
-### Phase 2: Exit Rules (When to Sell?)
+### Phase 2: Exit & Trade Management (How the Bot Protects and Maximizes Profits)
 
-Exit management is crucial and is divided into two parts:
+Exit management is dynamic and adapts to the chosen risk profile (e.g., `PRUDENT`, `EQUILIBRE`). The goal is not just to exit, but to manage the trade intelligently to maximize gains while minimizing risk.
 
-1.  **STOP LOSS (Protection):** If the trade goes wrong, we limit the loss.
-    *   **Placement:** Placed just **below the low of the candle that preceded the breakout candle**. This invalidates the initial breakout scenario if hit.
+1.  **STOP LOSS (Initial Protection):**
+    *   **Placement:** The initial Stop Loss is placed logically just **below the low of the candle that preceded the breakout candle**. This invalidates the breakout scenario if hit.
+    *   **Dynamic Adaptation (ATR):** In `PRUDENT` mode, the Stop Loss distance is calculated using the Average True Range (ATR), which automatically adapts to the pair's current volatility.
 
-2.  **TAKE PROFIT (Securing Gains):** We secure profits in a disciplined manner.
-    *   **Method:** A Risk/Reward Ratio is used. The risk (distance between the entry and the Stop Loss) is calculated, and the profit target is set at a multiple of that risk (e.g., **2 times the risk**).
+2.  **ADVANCED TRADE MANAGEMENT (The "Holder" Strategy):**
+    Once a trade is profitable, a sequence of automated actions is triggered to secure gains and let the winner run:
+    *   **Step 1: Partial Take Profit:** As the trade hits an initial profit target (e.g., +0.8%), the bot sells a portion of the position (e.g., 50%). This secures initial profit and reduces the capital at risk.
+    *   **Step 2: Move to Break-even:** Immediately after the partial sale, the Stop Loss is moved to the entry price. At this point, **the trade can no longer become a loss**.
+    *   **Step 3: Trailing Stop Loss:** For the remainder of the position, a Trailing Stop Loss is activated. It follows the price as it moves up, locking in more and more profit, but it never moves down. This allows the bot to "hold" the winning position and capture the entirety of a strong upward wave until the trend reverses.
 
 ---
 
@@ -130,10 +134,16 @@ Un signal d’achat `STRONG BUY` est déclenché uniquement si les 5 conditions 
     *   **Outil** : RSI sur le graphique en 1 heure (1h).
     *   **Condition** : Le **RSI est inférieur à 75**.
 
-### Phase 2 : Les Règles de Sortie (Quand vendre ?)
+### Phase 2 : Les Règles de Sortie & Gestion du Trade (Protéger et Maximiser les Gains)
 
-1.  **STOP LOSS (Protection)** :
-    *   **Placement** : Juste en **dessous du point le plus bas de la bougie qui précède la cassure**.
+La gestion de la sortie est dynamique et s'adapte au profil de risque choisi (ex: `PRUDENT`, `EQUILIBRE`). L'objectif n'est pas seulement de sortir, mais de gérer le trade intelligemment pour maximiser les gains tout en minimisant le risque.
 
-2.  **TAKE PROFIT (Prise de Gains)** :
-    *   **Méthode** : Utiliser un **ratio Risque/Récompense** (par exemple, 2:1). On calcule le risque (distance entre l’entrée et le Stop Loss) et on vise un gain qui est un multiple de ce risque.
+1.  **STOP LOSS (Protection Initiale)** :
+    *   **Placement** : Le Stop Loss initial est placé logiquement juste en **dessous du point le plus bas de la bougie qui précède la cassure**.
+    *   **Adaptation Dynamique (ATR)** : En mode `PRUDENT`, la distance du Stop Loss est calculée via l'Average True Range (ATR), qui s'adapte automatiquement à la volatilité actuelle de la paire.
+
+2.  **GESTION AVANCÉE DU TRADE (La Stratégie "Holder")** :
+    Dès qu'un trade devient profitable, une séquence d'actions automatiques est déclenchée pour sécuriser les gains et laisser le gagnant courir :
+    *   **Étape 1 : Prise de Profit Partielle** : Lorsque le trade atteint un premier objectif de profit (ex: +0.8%), le bot vend une partie de la position (ex: 50%). Cela sécurise un gain initial et réduit le capital à risque.
+    *   **Étape 2 : Mise à Seuil de Rentabilité (Break-even)** : Immédiatement après la vente partielle, le Stop Loss est déplacé au prix d'entrée. À ce stade, **le trade ne peut plus devenir perdant**.
+    *   **Étape 3 : Stop Loss Suiveur (Trailing Stop Loss)** : Pour le reste de la position, un Stop Loss suiveur est activé. Il suit le prix à la hausse, verrouillant de plus en plus de profit, mais ne descend jamais. Cela permet au bot de "Holder" la position gagnante et de capturer l'intégralité d'une forte vague haussière jusqu'à ce que la tendance s'inverse.
