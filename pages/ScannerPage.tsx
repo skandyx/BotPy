@@ -111,6 +111,29 @@ const ScannerPage: React.FC = () => {
     if (scoreValue >= 25) return 'bg-orange-800 text-orange-200'; // FAKE BREAKOUT
     return 'bg-blue-800 text-blue-200'; // COOLDOWN
   };
+  
+  // --- COLOR CODING HELPERS ---
+  const getTrendColorClass = (isAbove?: boolean): string => {
+    if (isAbove === true) return 'text-green-400'; // Favorable
+    if (isAbove === false) return 'text-red-400'; // Unfavorable
+    return 'text-gray-500'; // Neutral / Not available
+  };
+
+  const getRsiColorClass = (rsi?: number): string => {
+    if (!rsi || !settings) return 'text-gray-500';
+    const threshold = settings.RSI_OVERBOUGHT_THRESHOLD;
+    if (rsi >= threshold) return 'text-red-400 font-bold'; // Unfavorable
+    if (rsi >= threshold - 10) return 'text-yellow-400'; // Warning
+    return 'text-green-400'; // Favorable
+  };
+
+  const getBbWidthColorClass = (bbWidth?: number, isInSqueeze?: boolean): string => {
+      if (isInSqueeze) return 'text-sky-300 font-semibold'; // Favorable Squeeze
+      if (bbWidth === undefined || bbWidth === null) return 'text-gray-500';
+      if (bbWidth < 2.0) return 'text-yellow-400'; // Warning: getting tight
+      return 'text-gray-300'; // Neutral/Wide
+  };
+
 
   if (!settings) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
@@ -156,7 +179,6 @@ const ScannerPage: React.FC = () => {
                     {sortedPairs.length > 0 ? (
                         sortedPairs.map(pair => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
-                            const rsi1hClass = pair.rsi_1h && pair.rsi_1h >= 75 ? 'text-red-400 font-bold' : 'text-gray-300';
                             const bbWidth = pair.bollinger_bands_15m?.width_pct;
 
                             return (
@@ -173,13 +195,19 @@ const ScannerPage: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                        {pair.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (pair.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
+                                        <span className={getTrendColorClass(pair.price_above_ema50_4h)}>
+                                            {pair.price_above_ema50_4h === true ? '▲ HAUSSIER' : (pair.price_above_ema50_4h === false ? '▼ BAISSIER' : '-')}
+                                        </span>
                                     </td>
-                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${rsi1hClass}`}>{pair.rsi_1h?.toFixed(1) || 'N/A'}</td>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${getRsiColorClass(pair.rsi_1h)}`}>
+                                        {pair.rsi_1h?.toFixed(1) || 'N/A'}
+                                    </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
                                         <div className="flex items-center space-x-2">
-                                            <span>{bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}</span>
+                                            <span className={getBbWidthColorClass(bbWidth, pair.is_in_squeeze_15m)}>
+                                                {bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}
+                                            </span>
                                             {pair.is_in_squeeze_15m && (
                                                 <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-sky-800 text-sky-200" title="Bollinger Bands Squeeze Detected">
                                                     SQUEEZE
