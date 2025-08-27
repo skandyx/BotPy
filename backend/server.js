@@ -521,46 +521,39 @@ async function runScannerCycle() {
     if (!botState.isRunning) return;
     try {
         const discoveredPairs = await scanner.runScan(botState.settings);
-
-        // --- ROBUST MERGE LOGIC (v4) ---
-        // This logic gives absolute priority to existing real-time data to prevent overwrites.
-        const newScannerCache = [];
         const newPairsToHydrate = [];
+        const discoveredSymbols = new Set(discoveredPairs.map(p => p.symbol));
         const existingPairsMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
 
+        // 1. Update existing pairs from the new scan data, and identify brand new pairs.
         for (const discoveredPair of discoveredPairs) {
             const existingPair = existingPairsMap.get(discoveredPair.symbol);
-            
             if (existingPair) {
-                // This pair exists. We MUST preserve its real-time analysis data.
-                // We create a new object starting with the existing one (which has the correct score),
-                // then overwrite only the data that comes from the background scan.
-                const mergedPair = {
-                    ...existingPair,
-                    volume: discoveredPair.volume,
-                    price: discoveredPair.price, // Also update price from the latest ticker
-                    price_above_ema50_4h: discoveredPair.price_above_ema50_4h,
-                    rsi_1h: discoveredPair.rsi_1h,
-                };
-                newScannerCache.push(mergedPair);
+                // The pair already exists in our cache. We update ONLY the background
+                // indicators from the fresh scan, preserving all real-time data
+                // (like score, BB width, etc.) that the RealtimeAnalyzer has calculated.
+                existingPair.volume = discoveredPair.volume;
+                existingPair.price = discoveredPair.price;
+                existingPair.price_above_ema50_4h = discoveredPair.price_above_ema50_4h;
+                existingPair.rsi_1h = discoveredPair.rsi_1h;
             } else {
-                // This is a brand new pair, not seen before in the cache.
-                // Add it directly and mark it for kline data hydration.
-                newScannerCache.push(discoveredPair);
+                // This is a new pair not seen before. Add it to the main cache
+                // and mark it for historical data hydration.
+                botState.scannerCache.push(discoveredPair);
                 newPairsToHydrate.push(discoveredPair.symbol);
             }
         }
-        
-        // Atomically replace the old cache with the newly constructed one.
-        botState.scannerCache = newScannerCache;
-        
-        // Hydrate only the newly added pairs.
+
+        // 2. Remove pairs that are no longer valid (i.e., they were not in the latest scan results)
+        botState.scannerCache = botState.scannerCache.filter(p => discoveredSymbols.has(p.symbol));
+
+        // 3. Asynchronously hydrate the new pairs to get their 15m kline data
         if (newPairsToHydrate.length > 0) {
             log('INFO', `New symbols detected by scanner: [${newPairsToHydrate.join(', ')}]. Hydrating...`);
             await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol)));
         }
 
-        // Update WebSocket subscriptions to match the new final list of monitored pairs
+        // 4. Update WebSocket subscriptions to match the new final list of monitored pairs
         updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
         
     } catch (error) {
