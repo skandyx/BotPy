@@ -522,53 +522,50 @@ async function runScannerCycle() {
     try {
         const discoveredPairs = await scanner.runScan(botState.settings);
 
-        // --- ROBUST MERGE LOGIC ---
+        // --- INTELLIGENT MERGE LOGIC ---
+        // This logic ensures that real-time analysis data (like score) is preserved
+        // while updating background analysis data (like 4h trend).
         const discoveredPairsMap = new Map(discoveredPairs.map(p => [p.symbol, p]));
+        const currentCacheMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
+        const finalSymbols = new Set(discoveredPairs.map(p => p.symbol));
         const newScannerCache = [];
         const newPairsToHydrate = [];
 
-        // 1. Iterate through the existing cache to update and preserve real-time data
-        for (const existingPair of botState.scannerCache) {
-            const discoveredData = discoveredPairsMap.get(existingPair.symbol);
-            if (discoveredData) {
-                // Pair is still valid. Update its long-term data from the scan.
-                // This preserves the existingPair object with all its real-time data.
-                existingPair.volume = discoveredData.volume;
-                existingPair.price = discoveredData.price; // Update price from poll as a fallback
-                existingPair.price_above_ema50_4h = discoveredData.price_above_ema50_4h;
-                existingPair.rsi_1h = discoveredData.rsi_1h;
-                
-                newScannerCache.push(existingPair);
-                
-                // Remove it from the map so we know what's left are new pairs.
-                discoveredPairsMap.delete(existingPair.symbol);
+        for (const symbol of finalSymbols) {
+            const discoveredData = discoveredPairsMap.get(symbol);
+            const existingData = currentCacheMap.get(symbol);
+
+            if (existingData) {
+                // Pair already exists. Preserve real-time data from existingData
+                // and update background data from discoveredData.
+                existingData.volume = discoveredData.volume;
+                existingData.price_above_ema50_4h = discoveredData.price_above_ema50_4h;
+                existingData.rsi_1h = discoveredData.rsi_1h;
+                // Important: We push the MODIFIED existingData object, which keeps its score.
+                newScannerCache.push(existingData);
+            } else {
+                // This is a brand new pair. Add it and schedule for hydration.
+                newScannerCache.push(discoveredData);
+                newPairsToHydrate.push(symbol);
             }
-            // If a pair is not in discoveredPairsMap, it's implicitly dropped (e.g., volume too low).
         }
 
-        // 2. Any remaining pairs in the map are brand new. Add them to the cache.
-        const newPairsToAdd = Array.from(discoveredPairsMap.values());
-        for (const newPair of newPairsToAdd) {
-            newScannerCache.push(newPair);
-            newPairsToHydrate.push(newPair.symbol);
-        }
-
-        // 3. Replace the old cache with the newly constructed one.
         botState.scannerCache = newScannerCache;
         
-        // 4. Hydrate only the newly added pairs.
+        // Hydrate only the newly added pairs.
         if (newPairsToHydrate.length > 0) {
             log('INFO', `New symbols detected by scanner: [${newPairsToHydrate.join(', ')}]. Hydrating...`);
             await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol)));
         }
 
-        // 5. Update WebSocket subscriptions to match the new final list of monitored pairs
+        // Update WebSocket subscriptions to match the new final list of monitored pairs
         updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
         
     } catch (error) {
         log('ERROR', `Scanner cycle failed: ${error.message}`);
     }
 }
+
 
 // --- Trading Engine ---
 const tradingEngine = {
