@@ -260,14 +260,6 @@ class RealtimeAnalyzer {
         this.hydrating = new Set();
         this.SQUEEZE_PERCENTILE_THRESHOLD = 0.25; // Adjusted threshold
         this.SQUEEZE_LOOKBACK = 50;
-        this.SCORE_MAP = {
-            'STRONG BUY': 100,
-            'BUY': 90, // Not used in this strategy but kept for scale
-            'COMPRESSION': 80,
-            'HOLD': 50,
-            'FAKE_BREAKOUT': 30,
-            'COOLDOWN': 10
-        };
     }
 
     updateSettings(newSettings) {
@@ -291,6 +283,9 @@ class RealtimeAnalyzer {
             this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m?.length || 0} candles).`);
             return;
         }
+        
+        const old_score_value = pairToUpdate.score_value;
+        const old_score = pairToUpdate.score;
 
         const closes15m = klines15m.map(d => d.close);
         const highs15m = klines15m.map(d => d.high);
@@ -354,9 +349,9 @@ class RealtimeAnalyzer {
         }
 
         // 3. Handle normal transitions between HOLD and COMPRESSION.
-        if (nextScore === 'HOLD' && currentSqueezeStatus) {
+        if (nextScore === 'HOLD' && currentSqueezeStatus && pairToUpdate.price_above_ema50_4h) {
             nextScore = 'COMPRESSION';
-        } else if (nextScore === 'COMPRESSION' && !currentSqueezeStatus) {
+        } else if (nextScore === 'COMPRESSION' && (!currentSqueezeStatus || !pairToUpdate.price_above_ema50_4h)) {
             nextScore = 'HOLD';
         }
         
@@ -365,12 +360,35 @@ class RealtimeAnalyzer {
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
             nextScore = 'COOLDOWN';
         }
+        
+        // 5. Calculate detailed conditions for frontend display
+        const s = this.settings;
+        const conditions = {
+            trend: pairToUpdate.price_above_ema50_4h === true,
+            squeeze: pairToUpdate.is_in_squeeze_15m === true,
+            safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < s.RSI_OVERBOUGHT_THRESHOLD,
+            breakout: false,
+            volume: false,
+        };
 
+        if (nextScore === 'STRONG BUY') {
+            conditions.breakout = true;
+            conditions.volume = true;
+        } else if (nextScore === 'FAKE_BREAKOUT') {
+            conditions.breakout = true;
+            conditions.volume = false; 
+        }
+
+        const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
+
+        pairToUpdate.conditions = conditions;
+        pairToUpdate.conditions_met_count = conditionsMetCount;
+        pairToUpdate.score_value = (conditionsMetCount / 5) * 100;
+        pairToUpdate.score = nextScore;
+        
         // Update score and broadcast if it changed
-        if (pairToUpdate.score !== nextScore) {
-            pairToUpdate.score = nextScore;
-            pairToUpdate.score_value = this.SCORE_MAP[nextScore] || 50;
-            this.log('SCANNER', `[15m ANALYSIS] ${symbol} - Score updated to: ${nextScore}`);
+        if (pairToUpdate.score !== old_score || Math.abs((pairToUpdate.score_value || 0) - (old_score_value || 0)) > 1) {
+            this.log('SCANNER', `[15m ANALYSIS] ${symbol} - Score updated to: ${pairToUpdate.score}, Value: ${pairToUpdate.score_value.toFixed(0)} (${conditionsMetCount}/5)`);
             broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
         }
     }
@@ -475,7 +493,7 @@ function connectToBinanceStreams() {
                     const oldPrice = updatedPair.price;
                     updatedPair.price = newPrice;
                     updatedPair.priceDirection = newPrice > oldPrice ? 'up' : newPrice < oldPrice ? 'down' : (updatedPair.priceDirection || 'neutral');
-                    broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
+                    broadcast({ type: 'PRICE_UPDATE', payload: {symbol: msg.s, price: newPrice } });
                 }
             }
         } catch (e) {

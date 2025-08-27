@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ScannedPair } from '../types';
+import { ScannedPair, StrategyConditions } from '../types';
 import Spinner from '../components/common/Spinner';
 import { scannerStore } from '../services/scannerStore';
 import { useAppContext } from '../contexts/AppContext';
@@ -51,6 +51,33 @@ const EmptyScannerIcon = () => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5" />
     </svg>
 );
+
+const Dot: React.FC<{ active: boolean; tooltip: string }> = ({ active, tooltip }) => (
+    <div
+      className={`h-3 w-3 rounded-full transition-colors ${active ? 'bg-green-500' : 'bg-red-500'}`}
+      title={tooltip}
+    />
+);
+
+const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditions }) => {
+    const conditionTooltips = {
+        trend: 'Tendance 4h (Prix > EMA50)',
+        squeeze: 'Compression 15m (BB Squeeze)',
+        breakout: 'Cassure 15m (Clôture > BB Sup.)',
+        volume: 'Volume 15m (Volume > 2x Moyenne)',
+        safety: 'Sécurité 1h (RSI < Seuil)',
+    };
+
+    return (
+        <div className="flex items-center space-x-2">
+            <Dot active={conditions?.trend ?? false} tooltip={conditionTooltips.trend} />
+            <Dot active={conditions?.squeeze ?? false} tooltip={conditionTooltips.squeeze} />
+            <Dot active={conditions?.breakout ?? false} tooltip={conditionTooltips.breakout} />
+            <Dot active={conditions?.volume ?? false} tooltip={conditionTooltips.volume} />
+            <Dot active={conditions?.safety ?? false} tooltip={conditionTooltips.safety} />
+        </div>
+    );
+};
 
 
 const ScannerPage: React.FC = () => {
@@ -103,14 +130,14 @@ const ScannerPage: React.FC = () => {
     return sortablePairs;
   }, [pairs, sortConfig]);
   
-  const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
-    if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
-    if (scoreValue >= 95) return 'bg-green-600 text-green-100'; // STRONG BUY
-    if (scoreValue >= 75) return 'bg-sky-700 text-sky-200'; // COMPRESSION
-    if (scoreValue >= 45) return 'bg-gray-700 text-gray-200'; // HOLD
-    if (scoreValue >= 25) return 'bg-orange-800 text-orange-200'; // FAKE BREAKOUT
-    return 'bg-blue-800 text-blue-200'; // COOLDOWN
-  };
+    const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
+        if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
+        if (scoreValue >= 99) return 'bg-green-600 text-green-100'; // 5/5
+        if (scoreValue >= 80) return 'bg-sky-600 text-sky-100'; // 4/5
+        if (scoreValue >= 60) return 'bg-yellow-600 text-yellow-100'; // 3/5
+        return 'bg-gray-700 text-gray-200'; // 0-2/5
+    };
+
   
   // --- COLOR CODING HELPERS ---
   const getTrendColorClass = (isAbove?: boolean): string => {
@@ -139,7 +166,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 7; // Symbole, Prix, Score, Tendance 4h, RSI 1h, Volume, BB Width 15m
+  const totalColumnCount = 8; // Symbole, Prix, Score, Conditions, Tendance 4h, RSI 1h, Volume, BB Width 15m
 
   return (
     <div className="space-y-6">
@@ -169,6 +196,7 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
+                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Conditions</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h (EMA50)</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
@@ -190,9 +218,17 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
-                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreValueBadgeClass(pair.score_value)}`}>
-                                            {pair.score_value?.toFixed(0) ?? 'N/A'}
-                                        </span>
+                                        <div className="flex items-center space-x-2">
+                                            <span className={`px-2.5 py-1 text-xs font-semibold rounded-full w-12 text-center ${getScoreValueBadgeClass(pair.score_value)}`}>
+                                                {pair.score_value?.toFixed(0) ?? 'N/A'}
+                                            </span>
+                                            <span className="font-mono text-gray-400 text-xs">
+                                                ({pair.conditions_met_count ?? 0}/5)
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap">
+                                        <ConditionDots conditions={pair.conditions} />
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
                                         <span className={getTrendColorClass(pair.price_above_ema50_4h)}>

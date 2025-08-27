@@ -48,6 +48,14 @@ export interface Trade {
   entry_snapshot?: ScannedPair; // Capture scanner state at entry
 }
 
+export interface StrategyConditions {
+    trend: boolean;
+    squeeze: boolean;
+    breakout: boolean;
+    volume: boolean;
+    safety: boolean;
+}
+
 export interface ScannedPair {
     symbol: string;
     volume: number;
@@ -65,6 +73,8 @@ export interface ScannedPair {
     // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
     score_value?: number; // Numerical representation of the score
+    conditions?: StrategyConditions;
+    conditions_met_count?: number; // From 0 to 5
 }
 
 
