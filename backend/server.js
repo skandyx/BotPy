@@ -262,9 +262,8 @@ class RealtimeAnalyzer {
         this.settings = {};
         this.klineData = new Map(); // Map<symbol, Map<interval, kline[]>>
         this.hydrating = new Set();
-        // Threshold for detecting a Bollinger Band squeeze, e.g., if width is in the bottom 15% of recent history
         this.SQUEEZE_PERCENTILE_THRESHOLD = 0.15;
-        this.SQUEEZE_LOOKBACK = 50; // Look back over last 50 periods to define "low volatility"
+        this.SQUEEZE_LOOKBACK = 50;
     }
 
     updateSettings(newSettings) {
@@ -272,12 +271,85 @@ class RealtimeAnalyzer {
         this.settings = newSettings;
     }
 
+    analyze15mIndicators(symbol, isInitialAnalysis = false) {
+        const symbolKlines = this.klineData.get(symbol);
+        if (!symbolKlines) return;
+
+        const klines15m = symbolKlines.get('15m');
+        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) {
+            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m?.length || 0} candles).`);
+            return;
+        }
+        
+        const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
+        if (!pairToUpdate) return;
+        
+        this.log('SCANNER', `[15m] Analyzing ${symbol} for breakout conditions...`);
+        const closes15m = klines15m.map(d => d.close);
+
+        const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
+        const lastBB = bbResult[bbResult.length - 1];
+        if (!lastBB) return;
+        
+        const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
+        pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
+
+        const historicalWidths = bbResult.slice(0, -1).map(b => (b.upper - b.lower) / b.middle);
+        const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
+        const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
+        
+        const wasInSqueeze = bbResult.length > 1 ? (((bbResult[bbResult.length-2].upper - bbResult[bbResult.length-2].lower) / bbResult[bbResult.length-2].middle) <= squeezeThreshold) : false;
+        pairToUpdate.is_in_squeeze_15m = bbWidthPct <= squeezeThreshold;
+        
+        let score = isInitialAnalysis ? 'HOLD' : pairToUpdate.score;
+        if (pairToUpdate.is_in_squeeze_15m && score === 'HOLD') {
+            score = 'COMPRESSION';
+        }
+
+        const volumes15m = klines15m.map(k => k.volume);
+        const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
+        pairToUpdate.volume_20_period_avg_15m = avgVolume;
+
+        if (!isInitialAnalysis) {
+            const breakoutCandle = klines15m[klines15m.length - 1];
+            const isBreakout = breakoutCandle.close > lastBB.upper;
+
+            if (wasInSqueeze && isBreakout) {
+                this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
+                
+                const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
+                const check2_Volume = breakoutCandle.volume > (avgVolume * 2);
+                const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
+
+                this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
+
+                if (check1_Trend && check2_Volume && check3_RSI) {
+                    score = 'STRONG BUY';
+                    const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
+                    if (cooldownInfo && Date.now() < cooldownInfo.until) {
+                        score = 'COOLDOWN';
+                        this.log('TRADE', `Skipping trade for ${symbol} due to recent loss cooldown.`);
+                    } else {
+                         this.log('TRADE', `>>> FIRING TRADE for ${symbol} <<<`);
+                         const previousCandle = klines15m[klines15m.length - 2];
+                         tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
+                    }
+                } else {
+                    score = 'FAKE_BREAKOUT';
+                }
+            }
+        }
+        
+        pairToUpdate.score = score;
+        broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
+    }
+
     async hydrateSymbol(symbol) {
         if (this.hydrating.has(symbol) || this.klineData.has(symbol)) return;
         this.hydrating.add(symbol);
         this.log('INFO', `[Analyzer] Hydrating initial kline data for ${symbol} for breakout strategy...`);
         try {
-            const timeframes = ['1m', '15m', '1h']; // 4h is handled by ScannerService
+            const timeframes = ['1m', '15m', '1h'];
             const symbolData = new Map();
 
             for (const tf of timeframes) {
@@ -289,7 +361,10 @@ class RealtimeAnalyzer {
                 symbolData.set(tf, formattedKlines);
             }
             this.klineData.set(symbol, symbolData);
-            this.log('INFO', `[Analyzer] Successfully hydrated ${symbol}.`);
+            this.log('INFO', `[Analyzer] Successfully hydrated ${symbol}. Performing initial analysis.`);
+            
+            this.analyze15mIndicators(symbol, true);
+
         } catch (error) {
             this.log('ERROR', `[Analyzer] Failed to hydrate klines for ${symbol}: ${error.message}`);
         } finally {
@@ -310,7 +385,6 @@ class RealtimeAnalyzer {
         const k = klineMsg.k;
         const newKline = { open: parseFloat(k.o), close: parseFloat(k.c), high: parseFloat(k.h), low: parseFloat(k.l), volume: parseFloat(k.v) };
 
-        // Update kline data for the given interval
         const intervalKlines = symbolKlines.get(interval) || [];
         intervalKlines.push(newKline);
         if (intervalKlines.length > 200) intervalKlines.shift();
@@ -319,7 +393,6 @@ class RealtimeAnalyzer {
         const pairToUpdate = botState.scannerCache.find(p => p.symbol === symbol);
         if (!pairToUpdate) return;
 
-        // --- 1M ANALYSIS (for live volatility) ---
         if (interval === '1m') {
             const lookbackPeriod = 20;
             if (intervalKlines.length >= lookbackPeriod) {
@@ -328,78 +401,12 @@ class RealtimeAnalyzer {
                 const lowestLow = Math.min(...recentKlines.map(k => k.low));
                 pairToUpdate.volatility = lowestLow > 0 ? ((highestHigh - lowestLow) / lowestLow) * 100 : 0;
             }
+            broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
         }
 
-        // --- 15M ANALYSIS (THE CORE STRATEGY) ---
-        if (interval !== '15m') {
-            // Only update and broadcast if it was a 1m candle, otherwise wait for 15m analysis
-             if (interval === '1m') broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
-             return;
+        if (interval === '15m') {
+            this.analyze15mIndicators(symbol, false);
         }
-
-        this.log('SCANNER', `[15m] Analyzing ${symbol} for breakout conditions...`);
-        const klines15m = intervalKlines;
-        if (klines15m.length < this.SQUEEZE_LOOKBACK) {
-            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m.length} candles).`);
-            return;
-        }
-
-        const closes15m = klines15m.map(d => d.close);
-
-        // 1. Bollinger Bands Calculation
-        const bb = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
-        const lastBB = bb.pop();
-        if (!lastBB) return;
-        
-        const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
-        pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
-
-        // 2. Squeeze Detection
-        const historicalWidths = bb.map(b => (b.upper - b.lower) / b.middle);
-        const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
-        const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
-        
-        const wasInSqueeze = ((bb[bb.length - 1].upper - bb[bb.length - 1].lower) / bb[bb.length - 1].middle) <= squeezeThreshold;
-        pairToUpdate.is_in_squeeze_15m = bbWidthPct <= squeezeThreshold;
-
-        let score = pairToUpdate.is_in_squeeze_15m ? 'COMPRESSION' : 'HOLD';
-
-        // 3. Volume Average Calculation
-        const volumes15m = klines15m.map(k => k.volume);
-        const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
-        pairToUpdate.volume_20_period_avg_15m = avgVolume;
-
-        // --- BREAKOUT TRIGGER CHECK ---
-        const breakoutCandle = newKline;
-        const previousCandle = klines15m[klines15m.length - 2];
-        const isBreakout = breakoutCandle.close > lastBB.upper;
-
-        if (wasInSqueeze && isBreakout) {
-            this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
-            
-            const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
-            const check2_Volume = breakoutCandle.volume > (avgVolume * 2);
-            const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
-
-            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
-
-            if (check1_Trend && check2_Volume && check3_RSI) {
-                score = 'STRONG BUY';
-                const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
-                if (cooldownInfo && Date.now() < cooldownInfo.until) {
-                    score = 'COOLDOWN';
-                    this.log('TRADE', `Skipping trade for ${symbol} due to recent loss cooldown.`);
-                } else {
-                     this.log('TRADE', `>>> FIRING TRADE for ${symbol} <<<`);
-                     tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
-                }
-            } else {
-                score = 'FAKE_BREAKOUT';
-            }
-        }
-        
-        pairToUpdate.score = score;
-        broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
     }
 }
 

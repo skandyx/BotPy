@@ -4,6 +4,7 @@ import { ScannedPair } from '../types';
 import Spinner from '../components/common/Spinner';
 import { scannerStore } from '../services/scannerStore';
 import { useAppContext } from '../contexts/AppContext';
+import TradingViewWidget from '../components/common/TradingViewWidget';
 
 type SortableKeys = keyof ScannedPair;
 type SortDirection = 'asc' | 'desc';
@@ -55,6 +56,7 @@ const EmptyScannerIcon = () => (
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
   const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score', direction: 'desc' });
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const { settings } = useAppContext();
 
   useEffect(() => {
@@ -131,6 +133,23 @@ const ScannerPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl sm:text-3xl font-bold text-white">Scanner de Marché</h2>
+
+      {selectedSymbol && (
+        <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg relative">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Graphique : {selectedSymbol}</h3>
+                <button 
+                    onClick={() => setSelectedSymbol(null)} 
+                    className="text-gray-400 hover:text-white text-2xl leading-none absolute top-3 right-4 z-10"
+                    aria-label="Fermer le graphique"
+                >
+                   &times;
+                </button>
+            </div>
+            <TradingViewWidget symbol={selectedSymbol} />
+        </div>
+      )}
+
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
@@ -154,7 +173,11 @@ const ScannerPage: React.FC = () => {
                             const bbWidth = pair.bollinger_bands_15m?.width_pct;
 
                             return (
-                                <tr key={pair.symbol}>
+                                <tr 
+                                    key={pair.symbol}
+                                    onClick={() => setSelectedSymbol(pair.symbol)}
+                                    className="hover:bg-[#2b2f38]/50 cursor-pointer transition-colors"
+                                >
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
