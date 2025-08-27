@@ -707,3 +707,325 @@ const tradingEngine = {
                 this.closeTrade(trade.id, exitPrice, reason);
             });
             saveData('state');
+            broadcast({ type: 'POSITIONS_UPDATED' });
+        }
+    },
+
+    closeTrade(tradeId, exitPrice, reason = 'Manual Close') {
+        const tradeIndex = botState.activePositions.findIndex(t => t.id === tradeId);
+        if (tradeIndex === -1) {
+            log('WARN', `Could not find trade with ID ${tradeId} to close.`);
+            return null;
+        }
+        const [trade] = botState.activePositions.splice(tradeIndex, 1);
+        
+        trade.exit_price = exitPrice;
+        trade.exit_time = new Date().toISOString();
+        trade.status = 'CLOSED';
+
+        const entryValue = trade.entry_price * trade.initial_quantity;
+        const exitValue = exitPrice * trade.initial_quantity;
+        const pnl = (exitValue - entryValue) + (trade.realized_pnl || 0);
+
+        trade.pnl = pnl;
+        trade.pnl_pct = (pnl / entryValue) * 100;
+
+        botState.balance += entryValue + pnl;
+        
+        botState.tradeHistory.push(trade);
+        
+        if (pnl < 0 && botState.settings.LOSS_COOLDOWN_HOURS > 0) {
+            const cooldownUntil = Date.now() + botState.settings.LOSS_COOLDOWN_HOURS * 60 * 60 * 1000;
+            botState.recentlyLostSymbols.set(trade.symbol, { until: cooldownUntil });
+            log('TRADE', `[${trade.symbol}] placed on cooldown until ${new Date(cooldownUntil).toLocaleString()}`);
+        }
+        
+        log('TRADE', `<<< TRADE CLOSED >>> [${reason}] Closed ${trade.symbol} at $${exitPrice.toFixed(4)}. PnL: $${pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%)`);
+        return trade;
+    },
+    
+    executePartialSell(position, currentPrice) {
+        const s = botState.settings;
+        const sellQty = position.initial_quantity * (s.PARTIAL_TP_SELL_QTY_PCT / 100);
+        const pnlFromSale = (currentPrice - position.entry_price) * sellQty;
+
+        position.quantity -= sellQty;
+        position.realized_pnl = (position.realized_pnl || 0) + pnlFromSale;
+        position.partial_tp_hit = true;
+        
+        log('TRADE', `[PARTIAL TP] Sold ${s.PARTIAL_TP_SELL_QTY_PCT}% of ${position.symbol} at $${currentPrice}. Realized PnL: $${pnlFromSale.toFixed(2)}`);
+        
+        // This doesn't save state or broadcast, as it's part of the main loop's modifications
+    }
+};
+
+// --- Main Application Loop ---
+const startBot = () => {
+    if (scannerInterval) clearInterval(scannerInterval);
+    
+    // Initial scan, then set interval
+    runScannerCycle(); 
+    scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    
+    setInterval(() => {
+        if (botState.isRunning) {
+            tradingEngine.monitorAndManagePositions();
+        }
+    }, 1000); // Manage positions every second for high-frequency checks
+    
+    connectToBinanceStreams();
+    log('INFO', 'Bot started. Initializing scanner and position manager...');
+};
+
+// --- API Endpoints ---
+const requireAuth = (req, res, next) => {
+    if (req.session && req.session.isAuthenticated) {
+        next();
+    } else {
+        res.status(401).json({ message: 'Unauthorized' });
+    }
+};
+
+// --- AUTH ---
+app.post('/api/login', async (req, res) => {
+    const { password } = req.body;
+    try {
+        const isValid = await verifyPassword(password, botState.passwordHash);
+        if (isValid) {
+            req.session.isAuthenticated = true;
+            res.json({ success: true, message: 'Login successful.' });
+        } else {
+            res.status(401).json({ success: false, message: 'Invalid credentials.' });
+        }
+    } catch (error) {
+        log('ERROR', `Login attempt failed: ${error.message}`);
+        res.status(500).json({ success: false, message: 'Internal server error during login.' });
+    }
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) {
+            return res.status(500).json({ message: 'Could not log out.' });
+        }
+        res.clearCookie('connect.sid');
+        res.status(204).send();
+    });
+});
+
+app.get('/api/check-session', (req, res) => {
+    if (req.session && req.session.isAuthenticated) {
+        res.json({ isAuthenticated: true });
+    } else {
+        res.json({ isAuthenticated: false });
+    }
+});
+
+app.post('/api/change-password', requireAuth, async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
+    }
+    try {
+        botState.passwordHash = await hashPassword(newPassword);
+        await saveData('auth');
+        log('INFO', 'User password has been successfully updated.');
+        res.json({ success: true, message: 'Password updated successfully.' });
+    } catch (error) {
+        log('ERROR', `Failed to update password: ${error.message}`);
+        res.status(500).json({ success: false, message: 'Internal server error.' });
+    }
+});
+
+
+// --- SETTINGS ---
+app.get('/api/settings', requireAuth, (req, res) => {
+    res.json(botState.settings);
+});
+
+app.post('/api/settings', requireAuth, async (req, res) => {
+    botState.settings = { ...botState.settings, ...req.body };
+    await saveData('settings');
+    realtimeAnalyzer.updateSettings(botState.settings);
+    // Restart scanner interval with new settings
+    if (scannerInterval) clearInterval(scannerInterval);
+    scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    res.json({ success: true });
+});
+
+// --- DATA & STATUS ---
+app.get('/api/status', requireAuth, (req, res) => {
+    res.json({
+        mode: botState.tradingMode,
+        balance: botState.balance,
+        positions: botState.activePositions.length,
+        monitored_pairs: botState.scannerCache.length,
+        top_pairs: botState.scannerCache
+            .sort((a, b) => (b.score_value || 0) - (a.score_value || 0))
+            .slice(0, 15)
+            .map(p => p.symbol),
+        max_open_positions: botState.settings.MAX_OPEN_POSITIONS
+    });
+});
+
+app.get('/api/positions', requireAuth, (req, res) => {
+    // Augment positions with current price from scanner cache for frontend display
+    const augmentedPositions = botState.activePositions.map(pos => {
+        const pairData = botState.scannerCache.find(p => p.symbol === pos.symbol);
+        const currentPrice = pairData ? pairData.price : pos.entry_price;
+        const pnl = (currentPrice - pos.entry_price) * pos.quantity;
+        const entryValue = pos.entry_price * pos.quantity;
+        const pnl_pct = entryValue > 0 ? (pnl / entryValue) * 100 : 0;
+
+        return {
+            ...pos,
+            current_price: currentPrice,
+            pnl: pnl,
+            pnl_pct: pnl_pct,
+        };
+    });
+    res.json(augmentedPositions);
+});
+
+app.get('/api/history', requireAuth, (req, res) => {
+    res.json(botState.tradeHistory);
+});
+
+app.get('/api/performance-stats', requireAuth, (req, res) => {
+    const total_trades = botState.tradeHistory.length;
+    const winning_trades = botState.tradeHistory.filter(t => (t.pnl || 0) > 0).length;
+    const losing_trades = botState.tradeHistory.filter(t => (t.pnl || 0) < 0).length;
+    const total_pnl = botState.tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const win_rate = total_trades > 0 ? (winning_trades / total_trades) * 100 : 0;
+    
+    const pnlPcts = botState.tradeHistory.map(t => t.pnl_pct).filter(p => p !== undefined && p !== null);
+    const avg_pnl_pct = pnlPcts.length > 0 ? pnlPcts.reduce((a, b) => a + b, 0) / pnlPcts.length : 0;
+
+    res.json({ total_trades, winning_trades, losing_trades, total_pnl, win_rate, avg_pnl_pct });
+});
+
+app.get('/api/scanner', requireAuth, (req, res) => {
+    res.json(botState.scannerCache);
+});
+
+
+// --- ACTIONS ---
+app.post('/api/open-trade', requireAuth, (req, res) => {
+    // Manual trade opening logic can be added here if needed
+    res.status(501).json({ message: 'Manual trade opening not implemented.' });
+});
+
+app.post('/api/close-trade/:id', requireAuth, (req, res) => {
+    const tradeId = parseInt(req.params.id, 10);
+    const trade = botState.activePositions.find(t => t.id === tradeId);
+    if (!trade) return res.status(404).json({ message: 'Trade not found.' });
+
+    const pairData = botState.scannerCache.find(p => p.symbol === trade.symbol);
+    const exitPrice = pairData ? pairData.price : trade.entry_price;
+
+    const closedTrade = tradingEngine.closeTrade(tradeId, exitPrice, 'Manual Close');
+    if (closedTrade) {
+        saveData('state');
+        broadcast({ type: 'POSITIONS_UPDATED' });
+        res.json(closedTrade);
+    } else {
+        res.status(404).json({ message: 'Trade not found during close operation.' });
+    }
+});
+
+app.post('/api/clear-data', requireAuth, async (req, res) => {
+    log('WARN', 'User initiated data clear. Resetting all trade history and balance.');
+    botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
+    botState.activePositions = [];
+    botState.tradeHistory = [];
+    botState.tradeIdCounter = 1;
+    await saveData('state');
+    broadcast({ type: 'POSITIONS_UPDATED' });
+    res.json({ success: true });
+});
+
+// --- CONNECTION TESTS ---
+app.post('/api/test-coingecko', requireAuth, async (req, res) => {
+    const apiKey = req.body.apiKey;
+    const url = apiKey 
+        ? `https://api.coingecko.com/api/v3/ping?x_cg_demo_api_key=${apiKey}`
+        : `https://api.coingecko.com/api/v3/ping`;
+    try {
+        const response = await fetch(url);
+        if (response.ok) {
+            res.json({ success: true, message: "Connexion à CoinGecko réussie !" });
+        } else {
+            const errorBody = await response.json();
+            throw new Error(errorBody.error || `Status: ${response.status}`);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: `Échec de la connexion à CoinGecko : ${error.message}` });
+    }
+});
+
+app.post('/api/test-connection', requireAuth, async (req, res) => {
+    // This just tests if the Binance API is reachable, not the key validity
+    try {
+        const response = await fetch('https://api.binance.com/api/v3/ping');
+        if (response.ok) {
+            res.json({ success: true, message: 'Connexion à Binance réussie !' });
+        } else {
+            throw new Error(`Status: ${response.status}`);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: `Échec de la connexion à Binance : ${error.message}` });
+    }
+});
+
+
+// --- BOT CONTROL ---
+app.get('/api/bot/status', requireAuth, (req, res) => {
+    res.json({ isRunning: botState.isRunning });
+});
+app.post('/api/bot/start', requireAuth, async (req, res) => {
+    botState.isRunning = true;
+    await saveData('state');
+    log('INFO', 'Bot has been started via API.');
+    res.json({ success: true });
+});
+app.post('/api/bot/stop', requireAuth, async (req, res) => {
+    botState.isRunning = false;
+    await saveData('state');
+    log('INFO', 'Bot has been stopped via API.');
+    res.json({ success: true });
+});
+app.get('/api/mode', requireAuth, (req, res) => {
+    res.json({ mode: botState.tradingMode });
+});
+app.post('/api/mode', requireAuth, async (req, res) => {
+    const { mode } = req.body;
+    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
+        botState.tradingMode = mode;
+        await saveData('state');
+        log('INFO', `Trading mode switched to ${mode}.`);
+        res.json({ success: true, mode: botState.tradingMode });
+    } else {
+        res.status(400).json({ success: false, message: 'Invalid mode.' });
+    }
+});
+
+// --- Serve Frontend ---
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname, '..', 'dist')));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+});
+
+// --- Initialize and Start Server ---
+(async () => {
+    try {
+        await loadData();
+        startBot();
+        server.listen(port, () => {
+            log('INFO', `Server running on http://localhost:${port}`);
+        });
+    } catch (error) {
+        log('ERROR', `Failed to initialize and start server: ${error.message}`);
+        process.exit(1);
+    }
+})();
