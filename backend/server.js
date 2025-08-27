@@ -522,41 +522,47 @@ async function runScannerCycle() {
     try {
         const discoveredPairs = await scanner.runScan(botState.settings);
 
-        // --- INTELLIGENT MERGE LOGIC ---
-        const newCacheMap = new Map();
-        const existingSymbols = new Set(botState.scannerCache.map(p => p.symbol));
+        // --- ROBUST MERGE LOGIC ---
+        const discoveredPairsMap = new Map(discoveredPairs.map(p => [p.symbol, p]));
+        const newScannerCache = [];
+        const newPairsToHydrate = [];
 
-        for (const newPair of discoveredPairs) {
-            const existingPair = botState.scannerCache.find(p => p.symbol === newPair.symbol);
-            if (existingPair) {
-                // SMART MERGE: Update the existing pair with fresh long-term data from the scan,
-                // but crucially, DO NOT overwrite the real-time indicators (score, BB width, etc.)
-                // that are managed by the RealtimeAnalyzer.
-                existingPair.volume = newPair.volume;
-                existingPair.price = newPair.price; // Update price from the poll as a fallback
-                existingPair.price_above_ema50_4h = newPair.price_above_ema50_4h;
-                existingPair.rsi_1h = newPair.rsi_1h;
-                newCacheMap.set(newPair.symbol, existingPair);
-            } else {
-                // This is a completely new pair, add it as is.
-                // It will be hydrated by the RealtimeAnalyzer shortly.
-                newCacheMap.set(newPair.symbol, newPair);
+        // 1. Iterate through the existing cache to update and preserve real-time data
+        for (const existingPair of botState.scannerCache) {
+            const discoveredData = discoveredPairsMap.get(existingPair.symbol);
+            if (discoveredData) {
+                // Pair is still valid. Update its long-term data from the scan.
+                // This preserves the existingPair object with all its real-time data.
+                existingPair.volume = discoveredData.volume;
+                existingPair.price = discoveredData.price; // Update price from poll as a fallback
+                existingPair.price_above_ema50_4h = discoveredData.price_above_ema50_4h;
+                existingPair.rsi_1h = discoveredData.rsi_1h;
+                
+                newScannerCache.push(existingPair);
+                
+                // Remove it from the map so we know what's left are new pairs.
+                discoveredPairsMap.delete(existingPair.symbol);
             }
+            // If a pair is not in discoveredPairsMap, it's implicitly dropped (e.g., volume too low).
         }
-        
-        botState.scannerCache = Array.from(newCacheMap.values());
-        
-        const newSymbols = new Set(botState.scannerCache.map(p => p.symbol));
 
-        // Hydrate any new symbols that weren't being monitored before
-        for (const symbol of newSymbols) {
-            if (!existingSymbols.has(symbol)) {
-                log('INFO', `New symbol ${symbol} detected by scanner, hydrating...`);
-                await realtimeAnalyzer.hydrateSymbol(symbol);
-            }
+        // 2. Any remaining pairs in the map are brand new. Add them to the cache.
+        const newPairsToAdd = Array.from(discoveredPairsMap.values());
+        for (const newPair of newPairsToAdd) {
+            newScannerCache.push(newPair);
+            newPairsToHydrate.push(newPair.symbol);
         }
+
+        // 3. Replace the old cache with the newly constructed one.
+        botState.scannerCache = newScannerCache;
         
-        // Update WebSocket subscriptions to match the new list of monitored pairs
+        // 4. Hydrate only the newly added pairs.
+        if (newPairsToHydrate.length > 0) {
+            log('INFO', `New symbols detected by scanner: [${newPairsToHydrate.join(', ')}]. Hydrating...`);
+            await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol)));
+        }
+
+        // 5. Update WebSocket subscriptions to match the new final list of monitored pairs
         updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
         
     } catch (error) {
