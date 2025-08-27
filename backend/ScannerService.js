@@ -102,10 +102,9 @@ export class ScannerService {
             price_above_ema50_4h,
             rsi_1h,
             // Default values for realtime indicators, they will be populated by the RealtimeAnalyzer
-            priceDirection: 'neutral', 
-            rsi: 50, 
-            score: 'HOLD', 
-            volatility: 0,
+            priceDirection: 'neutral',
+            score: 'HOLD',
+            score_value: 50, // Corresponds to 'HOLD' in the backend SCORE_MAP
             is_in_squeeze_15m: false,
         };
 
