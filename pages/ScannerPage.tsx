@@ -116,7 +116,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 8; // Symbole, Prix, Score, Tendance 4h, RSI 1h, Volume, Volatilité, BB Width 15m
+  const totalColumnCount = 7; // Symbole, Prix, Score, Tendance 4h, RSI 1h, Volume, BB Width 15m
 
   return (
     <div className="space-y-6">
@@ -149,7 +149,6 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h (EMA50)</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volatility">Volatilité 1m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="bollinger_bands_15m">Largeur BB 15m</SortableHeader>
                     </tr>
                 </thead>
@@ -178,7 +177,6 @@ const ScannerPage: React.FC = () => {
                                     </td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${rsi1hClass}`}>{pair.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{pair.volatility.toFixed(2)}%</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                         <div className="flex items-center space-x-2">
                                             <span>{bbWidth !== undefined ? `${bbWidth.toFixed(2)}%` : 'N/A'}</span>

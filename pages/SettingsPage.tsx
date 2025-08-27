@@ -74,7 +74,6 @@ const tooltips: Record<string, string> = {
     TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
     SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
-    MIN_VOLATILITY_PCT: "La volatilité de prix minimale sur 1m qu'une paire doit avoir pour être considérée pour un trade. Évite d'entrer dans des trades sur des marchés plats et latéraux.",
     COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
     COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
@@ -358,7 +357,6 @@ const SettingsPage: React.FC = () => {
                     <h3 className="text-lg font-semibold text-white mb-4">Scanner de Marché & Filtres Stratégiques</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        {renderField('MIN_VOLUME_USD', "Volume Min (USD)")}
-                       {renderField('MIN_VOLATILITY_PCT', "Volatilité Min (%)")}
                        {renderField('COINGECKO_SYNC_SECONDS', "Synchro Scanner (secondes)")}
                        {renderField('LOSS_COOLDOWN_HOURS', "Cooldown sur Perte (Heures)")}
                         <div className="md:col-span-2">

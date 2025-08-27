@@ -65,7 +65,6 @@ export interface ScannedPair {
     // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
     score_value?: number; // Numerical representation of the score
-    volatility: number; // 1m volatility as a percentage
 }
 
 
@@ -110,7 +109,6 @@ export interface BotSettings {
     
     // Market Scanner & Strategy Filters
     MIN_VOLUME_USD: number;
-    MIN_VOLATILITY_PCT: number; // This is a 1m indicator, but still part of the broader filter
     COINGECKO_API_KEY: string;
     COINGECKO_SYNC_SECONDS: number;
     EXCLUDED_PAIRS: string;
