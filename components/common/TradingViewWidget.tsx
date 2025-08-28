@@ -9,9 +9,10 @@ declare global {
 
 interface TradingViewWidgetProps {
   symbol: string;
+  defaultInterval?: string;
 }
 
-const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol }) => {
+const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultInterval = "15" }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<any>(null);
 
@@ -24,7 +25,7 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol }) => {
         const widgetOptions = {
           autosize: true,
           symbol: `BINANCE:${symbol}`,
-          interval: "15",
+          interval: defaultInterval,
           timezone: "Etc/UTC",
           theme: "dark",
           style: "1",
@@ -54,10 +55,10 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol }) => {
       }
     }
 
-  }, [symbol]);
+  }, [symbol, defaultInterval]);
 
   // Give the container a unique ID for TradingView to hook into
-  const containerId = `tradingview_widget_${symbol}`;
+  const containerId = `tradingview_widget_${symbol}_${defaultInterval}`;
 
   return (
     <div 

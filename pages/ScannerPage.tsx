@@ -90,7 +90,7 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
 const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
   const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score_value', direction: 'desc' });
-  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [selectedPair, setSelectedPair] = useState<ScannedPair | null>(null);
   const { settings } = useAppContext();
 
   useEffect(() => {
@@ -187,19 +187,22 @@ const ScannerPage: React.FC = () => {
     <div className="space-y-6">
       <h2 className="text-2xl sm:text-3xl font-bold text-white">Scanner de Marché</h2>
 
-      {selectedSymbol && (
+      {selectedPair && (
         <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg relative">
             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-white">Graphique : {selectedSymbol}</h3>
+                <h3 className="text-lg font-semibold text-white">Graphique : {selectedPair.symbol}</h3>
                 <button 
-                    onClick={() => setSelectedSymbol(null)} 
+                    onClick={() => setSelectedPair(null)} 
                     className="text-gray-400 hover:text-white text-2xl leading-none absolute top-3 right-4 z-10"
                     aria-label="Fermer le graphique"
                 >
                    &times;
                 </button>
             </div>
-            <TradingViewWidget symbol={selectedSymbol} />
+            <TradingViewWidget 
+                symbol={selectedPair.symbol} 
+                defaultInterval={selectedPair.is_on_hotlist ? '1' : '15'} 
+            />
         </div>
       )}
 
@@ -231,7 +234,7 @@ const ScannerPage: React.FC = () => {
                             return (
                                 <tr 
                                     key={pair.symbol}
-                                    onClick={() => setSelectedSymbol(pair.symbol)}
+                                    onClick={() => setSelectedPair(pair)}
                                     className="hover:bg-[#2b2f38]/50 cursor-pointer transition-colors"
                                 >
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-center text-xl">
