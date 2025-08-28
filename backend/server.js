@@ -486,14 +486,22 @@ function connectToBinanceStreams() {
                     realtimeAnalyzer.handleNewKline(symbol, kline.i, formattedKline);
                 }
             } else if (msg.e === '24hrTicker') {
-                const updatedPair = botState.scannerCache.find(p => p.symbol === msg.s);
+                const symbol = msg.s;
+                const newPrice = parseFloat(msg.c);
+
+                // 1. Update the central price cache for all tickers received
+                botState.priceCache.set(symbol, { price: newPrice });
+
+                // 2. Update the scanner cache if the pair exists there (for UI display)
+                const updatedPair = botState.scannerCache.find(p => p.symbol === symbol);
                 if (updatedPair) {
-                    const newPrice = parseFloat(msg.c);
                     const oldPrice = updatedPair.price;
                     updatedPair.price = newPrice;
                     updatedPair.priceDirection = newPrice > oldPrice ? 'up' : newPrice < oldPrice ? 'down' : (updatedPair.priceDirection || 'neutral');
-                    broadcast({ type: 'PRICE_UPDATE', payload: {symbol: msg.s, price: newPrice } });
                 }
+
+                // 3. Broadcast the price update for UI reactivity (positions, scanner, etc.)
+                broadcast({ type: 'PRICE_UPDATE', payload: {symbol: symbol, price: newPrice } });
             }
         } catch (e) {
             log('ERROR', `Error processing Binance WS message: ${e.message}`);
@@ -509,8 +517,25 @@ function connectToBinanceStreams() {
 }
 
 function updateBinanceSubscriptions(baseSymbols) {
-    const newStreams = new Set(baseSymbols.flatMap(s => [`${s.toLowerCase()}@kline_15m`, `${s.toLowerCase()}@ticker`]));
+    const symbolsFromScanner = new Set(baseSymbols);
+    const symbolsFromPositions = new Set(botState.activePositions.map(p => p.symbol));
+
+    // Union of both sets to ensure we get price updates for all relevant pairs
+    const allSymbolsForTickers = new Set([...symbolsFromScanner, ...symbolsFromPositions]);
+
+    const newStreams = new Set();
     
+    // Ticker stream for ALL monitored symbols (scanner + positions)
+    allSymbolsForTickers.forEach(s => {
+        newStreams.add(`${s.toLowerCase()}@ticker`);
+    });
+
+    // 15m kline stream ONLY for pairs in the active scanner
+    symbolsFromScanner.forEach(s => {
+        newStreams.add(`${s.toLowerCase()}@kline_15m`);
+    });
+    
+    // 1m kline stream ONLY for pairs on the hotlist
     botState.hotlist.forEach(s => {
         newStreams.add(`${s.toLowerCase()}@kline_1m`);
     });
@@ -572,6 +597,7 @@ let botState = {
     passwordHash: '',
     recentlyLostSymbols: new Map(), // symbol -> { until: timestamp }
     hotlist: new Set(), // Symbols ready for 1m precision entry
+    priceCache: new Map(), // symbol -> { price: number }
 };
 
 const scanner = new ScannerService(log, KLINE_DATA_DIR);
@@ -581,6 +607,10 @@ async function runScannerCycle() {
     if (!botState.isRunning) return;
     try {
         const discoveredPairs = await scanner.runScan(botState.settings);
+        if (discoveredPairs.length === 0) {
+            this.log('WARN', 'No pairs found meeting volume/exclusion criteria.');
+            return [];
+        }
         const newPairsToHydrate = [];
         const discoveredSymbols = new Set(discoveredPairs.map(p => p.symbol));
         const existingPairsMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
@@ -710,10 +740,16 @@ const tradingEngine = {
 
         const positionsToClose = [];
         botState.activePositions.forEach(pos => {
-            const currentPairState = botState.scannerCache.find(p => p.symbol === pos.symbol);
-            if (!currentPairState) return; // Skip if pair is no longer scanned
+            const priceData = botState.priceCache.get(pos.symbol);
 
-            const currentPrice = currentPairState.price;
+            // If we don't have a price (e.g., connection issue), we must not assume anything.
+            // We just skip this cycle for this position. The position remains managed.
+            if (!priceData) {
+                log('WARN', `No price data available for active position ${pos.symbol}. Skipping management check for this cycle.`);
+                return;
+            }
+
+            const currentPrice = priceData.price;
             
             // Update highest price for trailing stop
             if (currentPrice > pos.highest_price_since_entry) {
@@ -927,8 +963,8 @@ app.get('/api/status', requireAuth, (req, res) => {
 app.get('/api/positions', requireAuth, (req, res) => {
     // Augment positions with current price from scanner cache for frontend display
     const augmentedPositions = botState.activePositions.map(pos => {
-        const pairData = botState.scannerCache.find(p => p.symbol === pos.symbol);
-        const currentPrice = pairData ? pairData.price : pos.entry_price;
+        const priceData = botState.priceCache.get(pos.symbol);
+        const currentPrice = priceData ? priceData.price : pos.entry_price;
         const pnl = (currentPrice - pos.entry_price) * pos.quantity;
         const entryValue = pos.entry_price * pos.quantity;
         const pnl_pct = entryValue > 0 ? (pnl / entryValue) * 100 : 0;
@@ -976,8 +1012,8 @@ app.post('/api/close-trade/:id', requireAuth, (req, res) => {
     const trade = botState.activePositions.find(t => t.id === tradeId);
     if (!trade) return res.status(404).json({ message: 'Trade not found.' });
 
-    const pairData = botState.scannerCache.find(p => p.symbol === trade.symbol);
-    const exitPrice = pairData ? pairData.price : trade.entry_price;
+    const priceData = botState.priceCache.get(trade.symbol);
+    const exitPrice = priceData ? priceData.price : trade.entry_price;
 
     const closedTrade = tradingEngine.closeTrade(tradeId, exitPrice, 'Manual Close');
     if (closedTrade) {
