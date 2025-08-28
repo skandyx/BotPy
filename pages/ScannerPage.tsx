@@ -5,8 +5,9 @@ import Spinner from '../components/common/Spinner';
 import { scannerStore } from '../services/scannerStore';
 import { useAppContext } from '../contexts/AppContext';
 import TradingViewWidget from '../components/common/TradingViewWidget';
+import { SearchIcon } from '../components/icons/Icons';
 
-type SortableKeys = keyof ScannedPair;
+type SortableKeys = keyof ScannedPair | 'vol_spike'; // Add custom sort key
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -35,14 +36,16 @@ const SortableHeader: React.FC<{
     requestSort: (key: SortableKeys) => void;
     sortKey: SortableKeys;
     children: React.ReactNode;
-}> = ({ sortConfig, requestSort, sortKey, children }) => {
+    className?: string;
+}> = ({ sortConfig, requestSort, sortKey, children, className }) => {
     const isSorted = sortConfig?.key === sortKey;
     const directionIcon = isSorted ? (sortConfig?.direction === 'asc' ? '▲' : '▼') : '';
+    const baseClasses = "px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f] transition-colors";
 
     return (
         <th 
             scope="col" 
-            className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-[#14181f] transition-colors"
+            className={`${baseClasses} ${className || ''}`}
             onClick={() => requestSort(sortKey)}
         >
             <div className="flex items-center">
@@ -91,6 +94,7 @@ const ScannerPage: React.FC = () => {
   const [pairs, setPairs] = useState<ScannedPair[]>(() => scannerStore.getScannedPairs());
   const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'score_value', direction: 'desc' });
   const [selectedPair, setSelectedPair] = useState<ScannedPair | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const { settings } = useAppContext();
 
   useEffect(() => {
@@ -115,19 +119,27 @@ const ScannerPage: React.FC = () => {
     setSortConfig({ key, direction });
   };
 
-  const sortedPairs = useMemo(() => {
-    let sortablePairs = [...pairs];
+  const filteredAndSortedPairs = useMemo(() => {
+    const filtered = searchQuery
+        ? pairs.filter(p => p.symbol.toLowerCase().includes(searchQuery.toLowerCase()))
+        : pairs;
+
+    let sortablePairs = [...filtered];
     if (sortConfig !== null) {
       sortablePairs.sort((a, b) => {
         let aVal, bVal;
+        const key = sortConfig.key;
         
-        // --- Custom sort logic for nested properties ---
-        if (sortConfig.key === 'bollinger_bands_15m') {
+        // --- Custom sort logic for nested/derived properties ---
+        if (key === 'bollinger_bands_15m') {
             aVal = a.bollinger_bands_15m?.width_pct;
             bVal = b.bollinger_bands_15m?.width_pct;
+        } else if (key === 'vol_spike') {
+            aVal = a.conditions?.volume ?? false;
+            bVal = b.conditions?.volume ?? false;
         } else {
-            aVal = a[sortConfig.key];
-            bVal = b[sortConfig.key];
+            aVal = a[key as keyof ScannedPair];
+            bVal = b[key as keyof ScannedPair];
         }
         
         if (aVal === undefined || aVal === null) return 1;
@@ -143,7 +155,7 @@ const ScannerPage: React.FC = () => {
       });
     }
     return sortablePairs;
-  }, [pairs, sortConfig]);
+  }, [pairs, sortConfig, searchQuery]);
   
     const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
         if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
@@ -207,11 +219,25 @@ const ScannerPage: React.FC = () => {
       )}
 
       <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg overflow-hidden">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
+         <div className="p-4 bg-[#14181f]/30">
+            <div className="relative w-full md:max-w-xs">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <SearchIcon />
+                </div>
+                <input
+                    type="text"
+                    placeholder="Rechercher Symbole..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="block w-full rounded-md border-[#3e4451] bg-[#0c0e12]/50 pl-10 pr-4 py-2 shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
+                />
+            </div>
+        </div>
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 20rem)' }}>
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f] sticky top-0 z-10">
                     <tr>
-                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Hotlist</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="is_on_hotlist" className="text-center">Hotlist</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
@@ -219,15 +245,15 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
-                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Vol Spike 15m</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="vol_spike" className="text-center">Vol Spike 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume_20_period_avg_15m">Vol Moy 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="bollinger_bands_15m">Largeur BB 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="atr_15m">ATR 15m</SortableHeader>
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
-                    {sortedPairs.length > 0 ? (
-                        sortedPairs.map(pair => {
+                    {filteredAndSortedPairs.length > 0 ? (
+                        filteredAndSortedPairs.map(pair => {
                             const priceClass = pair.priceDirection === 'up' ? 'text-green-400' : (pair.priceDirection === 'down' ? 'text-red-400' : 'text-gray-300');
                             const bbWidth = pair.bollinger_bands_15m?.width_pct;
 
@@ -301,13 +327,20 @@ const ScannerPage: React.FC = () => {
                             <td colSpan={totalColumnCount} className="px-6 py-16 text-center text-gray-500">
                                 <div className="flex flex-col items-center">
                                     <EmptyScannerIcon />
-                                    <h3 className="mt-4 text-sm font-semibold text-gray-300">Aucune Paire Trouvée</h3>
+                                    <h3 className="mt-4 text-sm font-semibold text-gray-300">
+                                        {searchQuery ? 'Aucun Résultat' : 'Aucune Paire Trouvée'}
+                                    </h3>
                                     <p className="mt-1 text-sm text-gray-500">
-                                        Aucune paire ne correspond actuellement aux critères du scanner.
+                                        {searchQuery 
+                                            ? `Aucune paire ne correspond à "${searchQuery}".`
+                                            : "Aucune paire ne correspond actuellement aux critères du scanner."
+                                        }
                                     </p>
-                                    <p className="mt-1 text-sm text-gray-500">
-                                        Essayez d'ajuster vos filtres sur la page Paramètres ou attendez que les conditions du marché changent.
-                                    </p>
+                                     {!searchQuery && (
+                                        <p className="mt-1 text-sm text-gray-500">
+                                            Essayez d'ajuster vos filtres sur la page Paramètres ou attendez que les conditions du marché changent.
+                                        </p>
+                                     )}
                                 </div>
                             </td>
                         </tr>
