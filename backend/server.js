@@ -277,7 +277,7 @@ class RealtimeAnalyzer {
         if (!pairToUpdate) return;
 
         const klines15m = this.klineData.get(symbol)?.get('15m');
-        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) return;
+        if (!klines15m || klines15m.length < 21) return; // Need at least 20 for BB + 1 previous
 
         const old_score = pairToUpdate.score;
         const old_hotlist_status = pairToUpdate.is_on_hotlist;
@@ -289,31 +289,34 @@ class RealtimeAnalyzer {
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
         const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
 
-        // Correction: Need at least 2 BB points to check the previous one, and enough ATR results.
         if (bbResult.length < 2 || !atrResult.length) return;
 
         pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
-
-        // --- CORE LOGIC CORRECTION: Squeeze detection on the PREVIOUS candle ---
+        
         const lastCandle = klines15m[klines15m.length - 1];
         const lastBB = bbResult[bbResult.length - 1];
-        const previousBB = bbResult[bbResult.length - 2];
-        const previousBbWidthPct = (previousBB.upper - previousBB.lower) / previousBB.middle * 100;
 
         // Update pair with CURRENT BB width for display purposes
         const currentBbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
         pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: currentBbWidthPct };
 
-        // Historical context for squeeze should be relative to the PREVIOUS candle
-        const historicalWidths = bbResult.slice(0, -2).map(b => (b.upper - b.lower) / b.middle);
-        if (historicalWidths.length < this.SQUEEZE_LOOKBACK - 2) return; // Ensure enough data for a valid percentile
+        // --- CORRECTED SQUEEZE LOGIC ---
+        const bbWidths = bbResult.map(b => (b.upper - b.lower) / b.middle);
+        const previousCandleIndex = bbWidths.length - 2;
+        const previousBbWidth = bbWidths[previousCandleIndex];
 
-        const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
-        const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
-
-        const wasInSqueeze = previousBbWidthPct <= squeezeThreshold;
-        pairToUpdate.is_in_squeeze_15m = wasInSqueeze; // Store the critical squeeze state from the previous candle
-
+        const historyForSqueeze = bbWidths.slice(0, previousCandleIndex + 1).slice(-this.SQUEEZE_LOOKBACK);
+        
+        let wasInSqueeze = false;
+        if (historyForSqueeze.length < 20) {
+            pairToUpdate.is_in_squeeze_15m = false;
+        } else {
+            const sortedWidths = [...historyForSqueeze].sort((a, b) => a - b);
+            const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
+            wasInSqueeze = previousBbWidth <= squeezeThreshold;
+            pairToUpdate.is_in_squeeze_15m = wasInSqueeze;
+        }
+        
         const volumes15m = klines15m.map(k => k.volume);
         const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
         pairToUpdate.volume_20_period_avg_15m = avgVolume;
@@ -322,7 +325,7 @@ class RealtimeAnalyzer {
 
         // --- "Hotlist" Logic using the CORRECTED squeeze state ---
         const isTrendOK = pairToUpdate.price_above_ema50_4h === true;
-        const isOnHotlist = isTrendOK && wasInSqueeze; // Key change: Use `wasInSqueeze`
+        const isOnHotlist = isTrendOK && wasInSqueeze;
         pairToUpdate.is_on_hotlist = isOnHotlist;
 
         if (isOnHotlist && !old_hotlist_status) {
@@ -337,7 +340,6 @@ class RealtimeAnalyzer {
         if (isOnHotlist) finalScore = 'COMPRESSION';
 
         const isBreakout = lastCandle.close > lastBB.upper;
-        // A "fake breakout" is a breakout without a prior squeeze.
         if (isBreakout && !wasInSqueeze) {
             finalScore = 'FAKE_BREAKOUT';
         }
@@ -349,10 +351,10 @@ class RealtimeAnalyzer {
 
         const conditions = {
             trend: isTrendOK,
-            squeeze: wasInSqueeze, // Condition is based on the previous candle's state
+            squeeze: wasInSqueeze,
             safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD,
-            breakout: isBreakout, // Breakout is on the current candle
-            volume: volumeConditionMet, // Volume is on the current candle
+            breakout: isBreakout,
+            volume: volumeConditionMet,
         };
         const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
         pairToUpdate.conditions = conditions;
@@ -661,10 +663,17 @@ const tradingEngine = {
 
         const riskPerUnit = entryPrice - stopLoss;
         if (riskPerUnit <= 0) {
-            log('ERROR', `Calculated risk is zero or negative for ${pair.symbol}. Aborting trade.`);
+            log('ERROR', `Calculated risk is zero or negative for ${pair.symbol}. SL: ${stopLoss}, Entry: ${entryPrice}. Aborting trade.`);
             return;
         }
-        const takeProfit = entryPrice + (riskPerUnit * (s.TAKE_PROFIT_PCT / s.STOP_LOSS_PCT));
+        
+        // --- DIVISION BY ZERO PROTECTION ---
+        if (!s.USE_ATR_STOP_LOSS && (!s.STOP_LOSS_PCT || s.STOP_LOSS_PCT <= 0)) {
+            log('ERROR', `STOP_LOSS_PCT is zero or invalid (${s.STOP_LOSS_PCT}%) while not using ATR stop loss for ${pair.symbol}. Aborting trade.`);
+            return;
+        }
+        const riskRewardRatio = s.TAKE_PROFIT_PCT / s.STOP_LOSS_PCT;
+        const takeProfit = entryPrice + (riskPerUnit * riskRewardRatio);
 
         const newTrade = {
             id: botState.tradeIdCounter++,
