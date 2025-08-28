@@ -294,8 +294,9 @@ class RealtimeAnalyzer {
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
         const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
         const lastBB = bbResult[bbResult.length - 1];
+        const prevBB = bbResult[bbResult.length - 2];
         const lastATR = atrResult[atrResult.length - 1];
-        if (!lastBB || !lastATR) return;
+        if (!lastBB || !prevBB || !lastATR) return;
         
         pairToUpdate.atr_15m = lastATR;
         
@@ -312,79 +313,61 @@ class RealtimeAnalyzer {
         const volumes15m = klines15m.map(k => k.volume);
         const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
         pairToUpdate.volume_20_period_avg_15m = avgVolume;
-
-        // --- Robust State Machine ---
-        let currentScore = pairToUpdate.score || 'HOLD';
-        let nextScore = currentScore;
         
-        // 1. Reset transient states from the previous tick. A signal is a one-time event.
-        if (['STRONG BUY', 'FAKE_BREAKOUT'].includes(currentScore)) {
-            nextScore = currentSqueezeStatus ? 'COMPRESSION' : 'HOLD';
-        }
+        const breakoutCandle = klines15m[klines15m.length - 1];
+        const previousCandle = klines15m[klines15m.length - 2];
+        const volumeConditionMet = breakoutCandle.volume > (avgVolume * 2);
 
-        // 2. Check for a breakout event IF the score was 'COMPRESSION'.
-        if (nextScore === 'COMPRESSION') {
-            const wasInSqueeze = bbResult.length > 1 ? (((bbResult[bbResult.length-2].upper - bbResult[bbResult.length-2].lower) / bbResult[bbResult.length-2].middle) <= squeezeThreshold) : false;
-            const breakoutCandle = klines15m[klines15m.length - 1];
-            const isBreakout = breakoutCandle.close > lastBB.upper;
+        // --- Refactored Trading Logic ---
+        let finalScore = 'HOLD';
+        
+        // 1. Check for a breakout event
+        const isBreakout = breakoutCandle.close > lastBB.upper;
+        const prevBBWidth = (prevBB.upper - prevBB.lower) / prevBB.middle;
+        const wasInSqueeze = prevBBWidth <= squeezeThreshold;
+
+        if (isBreakout && wasInSqueeze) {
+            this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
             
-            if (wasInSqueeze && isBreakout) {
-                this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
-                
-                const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
-                const check2_Volume = breakoutCandle.volume > (avgVolume * 2);
-                const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
+            const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
+            const check2_Volume = volumeConditionMet;
+            const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
 
-                this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
+            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
 
-                if (check1_Trend && check2_Volume && check3_RSI) {
-                    nextScore = 'STRONG BUY';
-                    const previousCandle = klines15m[klines15m.length - 2];
-                    tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
-                } else {
-                    nextScore = 'FAKE_BREAKOUT';
-                    this.log('SCANNER', `[${symbol}] Breakout failed validation.`);
-                }
+            if (check1_Trend && check2_Volume && check3_RSI) {
+                finalScore = 'STRONG BUY';
+                tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
+            } else {
+                finalScore = 'FAKE_BREAKOUT';
+                this.log('SCANNER', `[${symbol}] Breakout failed validation.`);
             }
-        }
-
-        // 3. Handle normal transitions between HOLD and COMPRESSION.
-        if (nextScore === 'HOLD' && currentSqueezeStatus && pairToUpdate.price_above_ema50_4h) {
-            nextScore = 'COMPRESSION';
-        } else if (nextScore === 'COMPRESSION' && (!currentSqueezeStatus || !pairToUpdate.price_above_ema50_4h)) {
-            nextScore = 'HOLD';
+        } else if (currentSqueezeStatus && pairToUpdate.price_above_ema50_4h) {
+            finalScore = 'COMPRESSION';
         }
         
-        // 4. Override with COOLDOWN status if applicable (highest priority)
+        // 2. Override with COOLDOWN status if applicable (highest priority)
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
-            nextScore = 'COOLDOWN';
+            finalScore = 'COOLDOWN';
         }
         
-        // 5. Calculate detailed conditions for frontend display
+        // 3. Calculate detailed conditions for frontend display
         const s = this.settings;
         const conditions = {
             trend: pairToUpdate.price_above_ema50_4h === true,
-            squeeze: pairToUpdate.is_in_squeeze_15m === true,
+            squeeze: wasInSqueeze, // Condition is that we WERE in a squeeze before breakout
             safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < s.RSI_OVERBOUGHT_THRESHOLD,
-            breakout: false,
-            volume: false,
+            breakout: isBreakout,
+            volume: volumeConditionMet,
         };
-
-        if (nextScore === 'STRONG BUY') {
-            conditions.breakout = true;
-            conditions.volume = true;
-        } else if (nextScore === 'FAKE_BREAKOUT') {
-            conditions.breakout = true;
-            conditions.volume = false; 
-        }
 
         const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
 
         pairToUpdate.conditions = conditions;
         pairToUpdate.conditions_met_count = conditionsMetCount;
         pairToUpdate.score_value = (conditionsMetCount / 5) * 100;
-        pairToUpdate.score = nextScore;
+        pairToUpdate.score = finalScore;
         
         // Update score and broadcast if it changed
         if (pairToUpdate.score !== old_score || Math.abs((pairToUpdate.score_value || 0) - (old_score_value || 0)) > 1) {

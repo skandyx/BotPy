@@ -23,6 +23,13 @@ const formatPrice = (price: number | undefined | null): string => {
     return price.toFixed(8);
 };
 
+const formatVolume = (volume: number | undefined | null): string => {
+    if (volume === undefined || volume === null) return 'N/A';
+    if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(2)}M`;
+    if (volume >= 1_000) return `${(volume / 1_000).toFixed(1)}k`;
+    return volume.toFixed(0);
+};
+
 const SortableHeader: React.FC<{
     sortConfig: SortConfig | null;
     requestSort: (key: SortableKeys) => void;
@@ -112,8 +119,16 @@ const ScannerPage: React.FC = () => {
     let sortablePairs = [...pairs];
     if (sortConfig !== null) {
       sortablePairs.sort((a, b) => {
-        const aVal = a[sortConfig.key];
-        const bVal = b[sortConfig.key];
+        let aVal, bVal;
+        
+        // --- Custom sort logic for nested properties ---
+        if (sortConfig.key === 'bollinger_bands_15m') {
+            aVal = a.bollinger_bands_15m?.width_pct;
+            bVal = b.bollinger_bands_15m?.width_pct;
+        } else {
+            aVal = a[sortConfig.key];
+            bVal = b[sortConfig.key];
+        }
         
         if (aVal === undefined || aVal === null) return 1;
         if (bVal === undefined || bVal === null) return -1;
@@ -166,7 +181,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 8; // Symbole, Prix, Score, Conditions, Tendance 4h, RSI 1h, Volume, BB Width 15m
+  const totalColumnCount = 11;
 
   return (
     <div className="space-y-6">
@@ -197,10 +212,13 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
                         <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Conditions</th>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h (EMA50)</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
+                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Vol Spike 15m</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume_20_period_avg_15m">Vol Moy 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="bollinger_bands_15m">Largeur BB 15m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="atr_15m">ATR 15m</SortableHeader>
                     </tr>
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
@@ -239,6 +257,18 @@ const ScannerPage: React.FC = () => {
                                         {pair.rsi_1h?.toFixed(1) || 'N/A'}
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-center">
+                                        {pair.conditions?.volume === true ? (
+                                            <span className="text-green-400" title="Volume actuel > 2x la moyenne">▲ SPIKE</span>
+                                        ) : pair.conditions?.volume === false ? (
+                                            <span className="text-red-400" title="Volume actuel < 2x la moyenne">─ NORMAL</span>
+                                        ) : (
+                                            <span className="text-gray-500">-</span>
+                                        )}
+                                    </td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                        {formatVolume(pair.volume_20_period_avg_15m)}
+                                    </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
                                         <div className="flex items-center space-x-2">
                                             <span className={getBbWidthColorClass(bbWidth, pair.is_in_squeeze_15m)}>
@@ -250,6 +280,9 @@ const ScannerPage: React.FC = () => {
                                                 </span>
                                             )}
                                         </div>
+                                    </td>
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
+                                        {formatPrice(pair.atr_15m)}
                                     </td>
                                 </tr>
                             )
