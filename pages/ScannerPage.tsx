@@ -181,7 +181,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 11;
+  const totalColumnCount = 12;
 
   return (
     <div className="space-y-6">
@@ -208,6 +208,7 @@ const ScannerPage: React.FC = () => {
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f] sticky top-0 z-10">
                     <tr>
+                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Hotlist</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
@@ -233,6 +234,11 @@ const ScannerPage: React.FC = () => {
                                     onClick={() => setSelectedSymbol(pair.symbol)}
                                     className="hover:bg-[#2b2f38]/50 cursor-pointer transition-colors"
                                 >
+                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-center text-xl">
+                                        <span title="Prêt pour entrée de précision 1m">
+                                            {pair.is_on_hotlist ? '🎯' : ''}
+                                        </span>
+                                    </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{pair.symbol}</td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-mono transition-colors duration-200 ${priceClass}`}>${formatPrice(pair.price)}</td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">

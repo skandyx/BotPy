@@ -75,6 +75,7 @@ export interface ScannedPair {
     score_value?: number; // Numerical representation of the score
     conditions?: StrategyConditions;
     conditions_met_count?: number; // From 0 to 5
+    is_on_hotlist?: boolean; // New: True if conditions are met for 1m precision entry
 }
 
 

@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import http from 'http';
 import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
-import { RSI, ADX, ATR, MACD, SMA, BollingerBands } from 'technicalindicators';
+import { RSI, ADX, ATR, MACD, SMA, BollingerBands, EMA } from 'technicalindicators';
 
 
 // --- Basic Setup ---
@@ -251,41 +251,36 @@ const saveData = async (type) => {
 };
 
 
-// --- Realtime Analysis Engine (Volatility Breakout Strategy) ---
+// --- Realtime Analysis Engine (Macro-Micro Strategy) ---
 class RealtimeAnalyzer {
     constructor(log) {
         this.log = log;
         this.settings = {};
         this.klineData = new Map(); // Map<symbol, Map<interval, kline[]>>
         this.hydrating = new Set();
-        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.25; // Adjusted threshold
+        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.25;
         this.SQUEEZE_LOOKBACK = 50;
     }
 
     updateSettings(newSettings) {
-        this.log('INFO', '[Analyzer] Settings updated for Volatility Breakout strategy.');
+        this.log('INFO', '[Analyzer] Settings updated for Macro-Micro strategy.');
         this.settings = newSettings;
     }
 
+    // Phase 1: 15m analysis to qualify pairs for the Hotlist
     analyze15mIndicators(symbolOrPair) {
         const symbol = typeof symbolOrPair === 'string' ? symbolOrPair : symbolOrPair.symbol;
         const pairToUpdate = typeof symbolOrPair === 'string' 
             ? botState.scannerCache.find(p => p.symbol === symbol) 
             : symbolOrPair;
 
-        if (!pairToUpdate) {
-            this.log('WARN', `[15m] Could not find pair ${symbol} in cache for analysis.`);
-            return;
-        }
+        if (!pairToUpdate) return;
 
         const klines15m = this.klineData.get(symbol)?.get('15m');
-        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) {
-            this.log('SCANNER', `[15m] Insufficient data for ${symbol} (${klines15m?.length || 0} candles).`);
-            return;
-        }
+        if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) return;
         
-        const old_score_value = pairToUpdate.score_value;
         const old_score = pairToUpdate.score;
+        const old_hotlist_status = pairToUpdate.is_on_hotlist;
 
         const closes15m = klines15m.map(d => d.close);
         const highs15m = klines15m.map(d => d.high);
@@ -294,12 +289,9 @@ class RealtimeAnalyzer {
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
         const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
         const lastBB = bbResult[bbResult.length - 1];
-        const prevBB = bbResult[bbResult.length - 2];
-        const lastATR = atrResult[atrResult.length - 1];
-        if (!lastBB || !prevBB || !lastATR) return;
+        if (!lastBB || !atrResult.length) return;
         
-        pairToUpdate.atr_15m = lastATR;
-        
+        pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
         const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
         pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
 
@@ -314,118 +306,126 @@ class RealtimeAnalyzer {
         const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
         pairToUpdate.volume_20_period_avg_15m = avgVolume;
         
-        const breakoutCandle = klines15m[klines15m.length - 1];
-        const previousCandle = klines15m[klines15m.length - 2];
-        const volumeConditionMet = breakoutCandle.volume > (avgVolume * 2);
+        const lastCandle = klines15m[klines15m.length - 1];
+        const volumeConditionMet = lastCandle.volume > (avgVolume * 2);
 
-        // --- Refactored Trading Logic ---
-        let finalScore = 'HOLD';
+        // --- New "Hotlist" Logic ---
+        const isTrendOK = pairToUpdate.price_above_ema50_4h === true;
+        const isOnHotlist = isTrendOK && currentSqueezeStatus;
+        pairToUpdate.is_on_hotlist = isOnHotlist;
         
-        // 1. Check for a breakout event
-        const isBreakout = breakoutCandle.close > lastBB.upper;
-        const prevBBWidth = (prevBB.upper - prevBB.lower) / prevBB.middle;
-        const wasInSqueeze = prevBBWidth <= squeezeThreshold;
-
-        if (isBreakout && wasInSqueeze) {
-            this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
-            
-            const s = this.settings;
-            const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
-            const isRsiSafe = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < s.RSI_OVERBOUGHT_THRESHOLD;
-
-            // CRITICAL FIX: Check if filters are active in settings before applying them
-            const check2_Volume = !s.USE_VOLUME_CONFIRMATION || volumeConditionMet;
-            const check3_RSI = !s.USE_RSI_SAFETY_FILTER || isRsiSafe;
-            
-            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Vol Check On? ${s.USE_VOLUME_CONFIRMATION} -> Met? ${volumeConditionMet}, RSI Check On? ${s.USE_RSI_SAFETY_FILTER} -> Met? ${isRsiSafe}`);
-
-            if (check1_Trend && check2_Volume && check3_RSI) {
-                finalScore = 'STRONG BUY';
-                tradingEngine.evaluateAndOpenTrade(pairToUpdate, previousCandle.low);
-            } else {
-                finalScore = 'FAKE_BREAKOUT';
-                this.log('SCANNER', `[${symbol}] Breakout failed validation.`);
-            }
-        } else if (currentSqueezeStatus && pairToUpdate.price_above_ema50_4h) {
-            finalScore = 'COMPRESSION';
+        if (isOnHotlist && !old_hotlist_status) {
+            this.log('SCANNER', `[HOTLIST ADDED] ${symbol} now meets macro conditions.`);
+            addSymbolTo1mStream(symbol);
+        } else if (!isOnHotlist && old_hotlist_status) {
+            this.log('SCANNER', `[HOTLIST REMOVED] ${symbol} no longer meets macro conditions.`);
+            removeSymbolFrom1mStream(symbol);
         }
+
+        let finalScore = 'HOLD';
+        if (isOnHotlist) finalScore = 'COMPRESSION';
         
-        // 2. Override with COOLDOWN status if applicable (highest priority)
+        const isBreakout = lastCandle.close > lastBB.upper;
+        if (isBreakout && !isOnHotlist) finalScore = 'FAKE_BREAKOUT';
+
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
             finalScore = 'COOLDOWN';
         }
         
-        // 3. Calculate detailed conditions for frontend display
-        const s = this.settings;
         const conditions = {
-            trend: pairToUpdate.price_above_ema50_4h === true,
-            squeeze: wasInSqueeze, // Condition is that we WERE in a squeeze before breakout
-            safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < s.RSI_OVERBOUGHT_THRESHOLD,
+            trend: isTrendOK,
+            squeeze: currentSqueezeStatus,
+            safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD,
             breakout: isBreakout,
             volume: volumeConditionMet,
         };
-
         const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
-
         pairToUpdate.conditions = conditions;
         pairToUpdate.conditions_met_count = conditionsMetCount;
         pairToUpdate.score_value = (conditionsMetCount / 5) * 100;
         pairToUpdate.score = finalScore;
         
-        // Update score and broadcast if it changed
-        if (pairToUpdate.score !== old_score || Math.abs((pairToUpdate.score_value || 0) - (old_score_value || 0)) > 1) {
-            this.log('SCANNER', `[15m ANALYSIS] ${symbol} - Score updated to: ${pairToUpdate.score}, Value: ${pairToUpdate.score_value.toFixed(0)} (${conditionsMetCount}/5)`);
+        if (pairToUpdate.score !== old_score || pairToUpdate.is_on_hotlist !== old_hotlist_status) {
             broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
         }
     }
+    
+    // Phase 2: 1m analysis to find the precision entry for pairs on the Hotlist
+    analyze1mIndicators(symbol, kline) {
+        const pair = botState.scannerCache.find(p => p.symbol === symbol);
+        if (!pair || !pair.is_on_hotlist) return;
 
-    async hydrateSymbol(symbol) {
-        if (this.hydrating.has(symbol)) return;
-        this.hydrating.add(symbol);
-        this.log('INFO', `[Analyzer] Hydrating historical klines for new symbol: ${symbol}`);
-        try {
-            const klines15m = await scanner.fetchKlinesFromBinance(symbol, '15m');
-            if (klines15m.length === 0) throw new Error("No 15m klines fetched.");
-            const formattedKlines = klines15m.map(k => ({
-                openTime: k[0],
-                open: parseFloat(k[1]),
-                high: parseFloat(k[2]),
-                low: parseFloat(k[3]),
-                close: parseFloat(k[4]),
-                volume: parseFloat(k[5]),
-                closeTime: k[6],
-            }));
+        const klines1m = this.klineData.get(symbol)?.get('1m');
+        if (!klines1m || klines1m.length < 21) return; // Need enough for EMA and avg volume
 
-            if (!this.klineData.has(symbol)) {
-                this.klineData.set(symbol, new Map());
-            }
-            this.klineData.get(symbol).set('15m', formattedKlines);
+        const closes1m = klines1m.map(k => k.close);
+        const volumes1m = klines1m.map(k => k.volume);
+
+        const lastEma9 = EMA.calculate({ period: 9, values: closes1m }).pop();
+        const avgVolume = volumes1m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
+
+        if (lastEma9 === undefined) return;
+        
+        const triggerCandle = klines1m[klines1m.length - 1];
+        const isEntrySignal = triggerCandle.close > lastEma9 && triggerCandle.volume > avgVolume * 1.5;
+
+        if (isEntrySignal) {
+            this.log('TRADE', `[1m TRIGGER] Precision entry signal detected for ${symbol}!`);
+            pair.score = 'STRONG BUY'; // Update score to reflect the trigger
+            broadcast({ type: 'SCANNER_UPDATE', payload: pair });
+            tradingEngine.evaluateAndOpenTrade(pair, triggerCandle.low);
             
-            // Perform an immediate analysis after hydrating
-            this.analyze15mIndicators(symbol);
-
-        } catch (error) {
-            this.log('ERROR', `Failed to hydrate ${symbol}: ${error.message}`);
-        } finally {
-            this.hydrating.delete(symbol);
+            // Once triggered, remove from hotlist to prevent re-entry
+            pair.is_on_hotlist = false;
+            removeSymbolFrom1mStream(symbol);
+            broadcast({ type: 'SCANNER_UPDATE', payload: pair });
         }
     }
 
-    handleNew15mKline(symbol, kline) {
-        log('BINANCE_WS', `[15m KLINE] Received for ${symbol}. Close: ${kline.close}`);
-        if (!this.klineData.has(symbol) || !this.klineData.get(symbol).has('15m')) {
-            this.log('WARN', `Received 15m kline for un-hydrated symbol ${symbol}. Hydrating now.`);
-            this.hydrateSymbol(symbol); // Hydrate if data is missing
+
+    async hydrateSymbol(symbol, interval = '15m') {
+        const klineLimit = interval === '1m' ? 50 : 201;
+        if (this.hydrating.has(`${symbol}-${interval}`)) return;
+        this.hydrating.add(`${symbol}-${interval}`);
+        this.log('INFO', `[Analyzer] Hydrating ${interval} klines for: ${symbol}`);
+        try {
+            const klines = await scanner.fetchKlinesFromBinance(symbol, interval, 0, klineLimit);
+            if (klines.length === 0) throw new Error(`No ${interval} klines fetched.`);
+            const formattedKlines = klines.map(k => ({
+                openTime: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
+                low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5]),
+                closeTime: k[6],
+            }));
+
+            if (!this.klineData.has(symbol)) this.klineData.set(symbol, new Map());
+            this.klineData.get(symbol).set(interval, formattedKlines);
+            
+            if (interval === '15m') this.analyze15mIndicators(symbol);
+
+        } catch (error) {
+            this.log('ERROR', `Failed to hydrate ${symbol} (${interval}): ${error.message}`);
+        } finally {
+            this.hydrating.delete(`${symbol}-${interval}`);
+        }
+    }
+
+    handleNewKline(symbol, interval, kline) {
+        log('BINANCE_WS', `[${interval} KLINE] Received for ${symbol}. Close: ${kline.close}`);
+        if (!this.klineData.has(symbol) || !this.klineData.get(symbol).has(interval)) {
+            this.hydrateSymbol(symbol, interval);
             return;
         }
 
-        const klines15m = this.klineData.get(symbol).get('15m');
-        klines15m.push(kline);
-        if (klines15m.length > 201) { // Keep buffer size manageable
-            klines15m.shift();
+        const klines = this.klineData.get(symbol).get(interval);
+        klines.push(kline);
+        if (klines.length > 201) klines.shift();
+        
+        if (interval === '15m') {
+            this.analyze15mIndicators(symbol);
+        } else if (interval === '1m') {
+            this.analyze1mIndicators(symbol, kline);
         }
-        this.analyze15mIndicators(symbol);
     }
 }
 const realtimeAnalyzer = new RealtimeAnalyzer(log);
@@ -461,17 +461,13 @@ function connectToBinanceStreams() {
             const msg = JSON.parse(data);
             if (msg.e === 'kline') {
                 const { s: symbol, k: kline } = msg;
-                if (kline.i === '15m' && kline.x) { // is closed kline
+                if (kline.x) { // is closed kline
                      const formattedKline = {
-                        openTime: kline.t,
-                        open: parseFloat(kline.o),
-                        high: parseFloat(kline.h),
-                        low: parseFloat(kline.l),
-                        close: parseFloat(kline.c),
-                        volume: parseFloat(kline.v),
+                        openTime: kline.t, open: parseFloat(kline.o), high: parseFloat(kline.h),
+                        low: parseFloat(kline.l), close: parseFloat(kline.c), volume: parseFloat(kline.v),
                         closeTime: kline.T,
                     };
-                    realtimeAnalyzer.handleNew15mKline(symbol, formattedKline);
+                    realtimeAnalyzer.handleNewKline(symbol, kline.i, formattedKline);
                 }
             } else if (msg.e === '24hrTicker') {
                 const updatedPair = botState.scannerCache.find(p => p.symbol === msg.s);
@@ -496,8 +492,13 @@ function connectToBinanceStreams() {
     binanceWs.on('error', (err) => log('ERROR', `Binance WebSocket error: ${err.message}`));
 }
 
-function updateBinanceSubscriptions(symbolsToMonitor) {
-    const newStreams = new Set(symbolsToMonitor.flatMap(s => [`${s.toLowerCase()}@kline_15m`, `${s.toLowerCase()}@ticker`]));
+function updateBinanceSubscriptions(baseSymbols) {
+    const newStreams = new Set(baseSymbols.flatMap(s => [`${s.toLowerCase()}@kline_15m`, `${s.toLowerCase()}@ticker`]));
+    
+    botState.hotlist.forEach(s => {
+        newStreams.add(`${s.toLowerCase()}@kline_1m`);
+    });
+
     const streamsToUnsub = [...subscribedStreams].filter(s => !newStreams.has(s));
     const streamsToSub = [...newStreams].filter(s => !subscribedStreams.has(s));
 
@@ -516,6 +517,32 @@ function updateBinanceSubscriptions(symbolsToMonitor) {
     newStreams.forEach(s => subscribedStreams.add(s));
 }
 
+function addSymbolTo1mStream(symbol) {
+    botState.hotlist.add(symbol);
+    const streamName = `${symbol.toLowerCase()}@kline_1m`;
+    if (!subscribedStreams.has(streamName)) {
+        subscribedStreams.add(streamName);
+        if (binanceWs && binanceWs.readyState === WebSocket.OPEN) {
+            binanceWs.send(JSON.stringify({ method: "SUBSCRIBE", params: [streamName], id: Date.now() }));
+            log('BINANCE_WS', `Dynamically subscribed to 1m stream for ${symbol}.`);
+        }
+        realtimeAnalyzer.hydrateSymbol(symbol, '1m');
+    }
+}
+
+function removeSymbolFrom1mStream(symbol) {
+    botState.hotlist.delete(symbol);
+    const streamName = `${symbol.toLowerCase()}@kline_1m`;
+    if (subscribedStreams.has(streamName)) {
+        subscribedStreams.delete(streamName);
+        if (binanceWs && binanceWs.readyState === WebSocket.OPEN) {
+            binanceWs.send(JSON.stringify({ method: "UNSUBSCRIBE", params: [streamName], id: Date.now() }));
+            log('BINANCE_WS', `Dynamically unsubscribed from 1m stream for ${symbol}.`);
+        }
+    }
+}
+
+
 // --- Bot State & Core Logic ---
 let botState = {
     settings: {},
@@ -528,6 +555,7 @@ let botState = {
     tradingMode: 'VIRTUAL', // VIRTUAL, REAL_PAPER, REAL_LIVE
     passwordHash: '',
     recentlyLostSymbols: new Map(), // symbol -> { until: timestamp }
+    hotlist: new Set(), // Symbols ready for 1m precision entry
 };
 
 const scanner = new ScannerService(log, KLINE_DATA_DIR);
@@ -566,7 +594,7 @@ async function runScannerCycle() {
         // 3. Asynchronously hydrate the new pairs to get their 15m kline data
         if (newPairsToHydrate.length > 0) {
             log('INFO', `New symbols detected by scanner: [${newPairsToHydrate.join(', ')}]. Hydrating...`);
-            await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol)));
+            await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol, '15m')));
         }
 
         // 4. Update WebSocket subscriptions to match the new final list of monitored pairs
