@@ -141,7 +141,6 @@ export interface BotSettings {
     BREAKEVEN_TRIGGER_PCT: number; // PnL % to trigger break-even
     
     // RSI Overbought Filter
-    USE_RSI_OVERBOUGHT_FILTER: boolean;
     RSI_OVERBOUGHT_THRESHOLD: number;
     
     // Partial Take Profit
@@ -152,4 +151,7 @@ export interface BotSettings {
     // Dynamic Position Sizing
     USE_DYNAMIC_POSITION_SIZING: boolean;
     STRONG_BUY_POSITION_SIZE_PCT: number;
+
+    // The single source of truth for the RSI safety filter toggle
+    USE_RSI_SAFETY_FILTER: boolean;
 }

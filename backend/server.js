@@ -183,7 +183,7 @@ const loadData = async () => {
             ATR_MULTIPLIER: 1.5,
             USE_AUTO_BREAKEVEN: true,
             BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
-            USE_RSI_OVERBOUGHT_FILTER: true,
+            USE_RSI_SAFETY_FILTER: true,
             RSI_OVERBOUGHT_THRESHOLD: 75,
             USE_PARTIAL_TAKE_PROFIT: false,
             PARTIAL_TP_TRIGGER_PCT: 1.5,
@@ -329,11 +329,15 @@ class RealtimeAnalyzer {
         if (isBreakout && wasInSqueeze) {
             this.log('SCANNER', `[15m] Breakout detected for ${symbol}! Validating conditions...`);
             
+            const s = this.settings;
             const check1_Trend = pairToUpdate.price_above_ema50_4h === true;
-            const check2_Volume = volumeConditionMet;
-            const check3_RSI = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD;
+            const isRsiSafe = pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < s.RSI_OVERBOUGHT_THRESHOLD;
 
-            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Volume OK? ${check2_Volume}, RSI OK? ${check3_RSI}`);
+            // CRITICAL FIX: Check if filters are active in settings before applying them
+            const check2_Volume = !s.USE_VOLUME_CONFIRMATION || volumeConditionMet;
+            const check3_RSI = !s.USE_RSI_SAFETY_FILTER || isRsiSafe;
+            
+            this.log('SCANNER', `[${symbol}] Validation: Trend OK? ${check1_Trend}, Vol Check On? ${s.USE_VOLUME_CONFIRMATION} -> Met? ${volumeConditionMet}, RSI Check On? ${s.USE_RSI_SAFETY_FILTER} -> Met? ${isRsiSafe}`);
 
             if (check1_Trend && check2_Volume && check3_RSI) {
                 finalScore = 'STRONG BUY';

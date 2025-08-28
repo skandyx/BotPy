@@ -15,11 +15,13 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
     PRUDENT: {
         POSITION_SIZE_PCT: 2.0,
         MAX_OPEN_POSITIONS: 3,
-        STOP_LOSS_PCT: 2.0, // Fallback, ATR is primary
-        TAKE_PROFIT_PCT: 10.0, // Main TP is high, as partial TP and trailing are used
+        STOP_LOSS_PCT: 2.0,
+        TAKE_PROFIT_PCT: 10.0,
         REQUIRE_STRONG_BUY: true,
         USE_MARKET_REGIME_FILTER: true,
-        // --- Advanced Risk Management for this profile (updated) ---
+        USE_VOLUME_CONFIRMATION: true, // Requires volume
+        USE_RSI_SAFETY_FILTER: true, // Requires RSI check
+        RSI_OVERBOUGHT_THRESHOLD: 65, // Stricter RSI
         USE_ATR_STOP_LOSS: true,
         ATR_MULTIPLIER: 1.5,
         USE_TRAILING_STOP_LOSS: true,
@@ -28,7 +30,6 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARTIAL_TAKE_PROFIT: true,
         PARTIAL_TP_TRIGGER_PCT: 0.8,
         PARTIAL_TP_SELL_QTY_PCT: 50,
-        RSI_OVERBOUGHT_THRESHOLD: 60,
     },
     EQUILIBRE: {
         POSITION_SIZE_PCT: 3.0,
@@ -37,14 +38,15 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         TAKE_PROFIT_PCT: 4.0,
         REQUIRE_STRONG_BUY: false,
         USE_MARKET_REGIME_FILTER: true,
-        // Reset advanced settings to default
+        USE_VOLUME_CONFIRMATION: false, // Volume check disabled
+        USE_RSI_SAFETY_FILTER: true, // RSI check still active
+        RSI_OVERBOUGHT_THRESHOLD: 70,
         USE_ATR_STOP_LOSS: false,
         ATR_MULTIPLIER: 1.5,
         USE_TRAILING_STOP_LOSS: true,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 1.0,
         USE_PARTIAL_TAKE_PROFIT: false,
-        RSI_OVERBOUGHT_THRESHOLD: 70,
     },
     AGRESSIF: {
         POSITION_SIZE_PCT: 4.0,
@@ -53,12 +55,13 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         TAKE_PROFIT_PCT: 6.0,
         REQUIRE_STRONG_BUY: false,
         USE_MARKET_REGIME_FILTER: true,
-        // Reset advanced settings
+        USE_VOLUME_CONFIRMATION: false, // Volume check disabled
+        USE_RSI_SAFETY_FILTER: false, // RSI check also disabled
+        RSI_OVERBOUGHT_THRESHOLD: 75,
         USE_ATR_STOP_LOSS: false,
         USE_AUTO_BREAKEVEN: false,
         BREAKEVEN_TRIGGER_PCT: 1.5,
         USE_PARTIAL_TAKE_PROFIT: false,
-        RSI_OVERBOUGHT_THRESHOLD: 75,
     }
 };
 
@@ -76,7 +79,7 @@ const tooltips: Record<string, string> = {
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
     COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
     COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
-    USE_VOLUME_CONFIRMATION: "Si activé, un signal de trade n'est valide que si le volume de trading actuel est supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
+    USE_VOLUME_CONFIRMATION: "Si activé, une cassure (breakout) n'est valide que si le volume est significativement supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
     USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si la structure du marché à long terme (basée sur les MA 50/200 sur le graphique 4h) est dans une TENDANCE HAUSSIÈRE confirmée.",
     REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
@@ -87,7 +90,7 @@ const tooltips: Record<string, string> = {
     ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
     BREAKEVEN_TRIGGER_PCT: "Le pourcentage de profit (%) auquel déclencher le passage au seuil de rentabilité (ex: 0.5% signifie que lorsque le profit atteint 0.5%, le SL est déplacé au prix d'entrée).",
-    USE_RSI_OVERBOUGHT_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
+    USE_RSI_SAFETY_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
     RSI_OVERBOUGHT_THRESHOLD: "Le niveau RSI au-dessus duquel un signal de trade sera ignoré (ex: 70).",
     USE_PARTIAL_TAKE_PROFIT: "Vendre une partie de la position à un objectif de profit préliminaire et laisser le reste courir avec le trailing stop loss.",
     PARTIAL_TP_TRIGGER_PCT: "Le pourcentage de profit (%) auquel vendre la première partie de la position.",
@@ -376,79 +379,132 @@ const SettingsPage: React.FC = () => {
                                     type="button"
                                     onClick={handleTestCoinGeckoConnection}
                                     disabled={isAnyActionInProgress || !settings.COINGECKO_API_KEY}
-                                    className="inline-flex items-center rounded-r-md border border-l-0 border-[#3e4451] bg-gray-600 px-3 py-2 text-xs font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="relative -ml-px inline-flex items-center space-x-2 rounded-r-md border border-[#3e4451] bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 focus:z-10 focus:border-[#f0b90b] focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50"
                                 >
-                                    {isTestingCoinGecko ? "Test..." : "Tester"}
+                                    {isTestingCoinGecko ? <Spinner size="sm" /> : <span>Tester</span>}
                                 </button>
                             </div>
                         </div>
-                        <div className="md:col-span-3">
-                            {renderField('EXCLUDED_PAIRS', "Paires Exclues (séparées par des virgules)", 'text')}
-                        </div>
+                        {renderField('EXCLUDED_PAIRS', "Paires Exclues", "text", { placeholder: "USDCUSDT,FDUSDUSDT" })}
                     </div>
                     <hr className="border-[#2b2f38] my-6" />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {renderToggle('USE_VOLUME_CONFIRMATION', "Conf. par le Volume")}
-                        {renderToggle('USE_MARKET_REGIME_FILTER', "Filtre de Régime de Marché")}
-                        {renderToggle('REQUIRE_STRONG_BUY', "Exiger 'Strong Buy' Uniquement")}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+                         {renderToggle('USE_MARKET_REGIME_FILTER', "Filtre de Tendance 4h")}
+                         {renderToggle('USE_VOLUME_CONFIRMATION', "Confirmation par Volume 15m")}
+                         {renderToggle('USE_RSI_SAFETY_FILTER', "Filtre de Sécurité RSI 1h")}
+                         {renderToggle('REQUIRE_STRONG_BUY', "Exiger 'Strong Buy'")}
                     </div>
                 </div>
-            </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-white">Stratégie Avancée & Gestion des Risques</h3>
-                 <div className="space-y-6">
-                    {/* --- Defense --- */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Défense</div>
-                        {renderToggle('USE_ATR_STOP_LOSS', "Utiliser le Stop Loss ATR")}
-                        {renderField('ATR_MULTIPLIER', "Multiplicateur ATR")}
-                        <div></div>
-                        {renderToggle('USE_AUTO_BREAKEVEN', "Utiliser l'Auto Break-even")}
-                        {renderField('BREAKEVEN_TRIGGER_PCT', "Déclencheur Break-even (%)")}
-                        <div></div>
-                        {renderToggle('USE_RSI_OVERBOUGHT_FILTER', "Utiliser le filtre RSI Surachat")}
-                        {renderField('RSI_OVERBOUGHT_THRESHOLD', "Seuil RSI Surachat")}
-                    </div>
-                    {/* --- Gains Optimization --- */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start p-4 border border-gray-700 rounded-md">
-                        <div className="md:col-span-3 text-base font-semibold text-[#f0b90b]">Optimisation des Gains</div>
-                        {renderToggle('USE_PARTIAL_TAKE_PROFIT', "Utiliser le Take Profit Partiel")}
-                        {renderField('PARTIAL_TP_TRIGGER_PCT', "Déclencheur TP Partiel (%)")}
-                        {renderField('PARTIAL_TP_SELL_QTY_PCT', "Qté Vendue TP Partiel (%)")}
-                         {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Taille de Position Dynamique")}
-                        {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille Position Strong Buy (%)")}
+                 <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Stratégie Avancée & Gestion des Risques</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
+                            {renderToggle('USE_ATR_STOP_LOSS', "Stop Loss Basé sur l'ATR")}
+                            {renderField('ATR_MULTIPLIER', "Multiplicateur ATR")}
+                        </div>
+                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
+                            {renderToggle('USE_AUTO_BREAKEVEN', "Mise à Seuil de Rentabilité Auto")}
+                            {renderField('BREAKEVEN_TRIGGER_PCT', "Déclencheur Seuil de Rentabilité (%)")}
+                        </div>
+                         <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
+                            {renderToggle('USE_PARTIAL_TAKE_PROFIT', "Prise de Profit Partielle")}
+                            {renderField('PARTIAL_TP_TRIGGER_PCT', "Déclencheur TP Partiel (%)")}
+                            {renderField('PARTIAL_TP_SELL_QTY_PCT', "Quantité de Vente TP Partiel (%)")}
+                        </div>
+                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
+                            {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Dimensionnement de Position Dynamique")}
+                            {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille de Position 'Strong Buy' (%)")}
+                        </div>
+                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
+                            <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                                <span>Filtre RSI de Surachat</span>
+                                {tooltips['RSI_OVERBOUGHT_THRESHOLD'] && <Tooltip text={tooltips['RSI_OVERBOUGHT_THRESHOLD']} />}
+                            </label>
+                            {renderField('RSI_OVERBOUGHT_THRESHOLD', "Seuil de Surachat RSI")}
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-white">Identifiants API</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                    {renderField('BINANCE_API_KEY', "Clé API Binance", 'text')}
-                    {renderField('BINANCE_SECRET_KEY', "Clé Secrète Binance", 'password')}
+                <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Identifiants API (Modes Réels)</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                             <label htmlFor="BINANCE_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                                <span>Clé API Binance</span>
+                                {tooltips['BINANCE_API_KEY'] && <Tooltip text={tooltips['BINANCE_API_KEY']} />}
+                            </label>
+                            <input
+                                type="text"
+                                id="BINANCE_API_KEY"
+                                value={settings.BINANCE_API_KEY}
+                                onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)}
+                                className={inputClass}
+                            />
+                        </div>
+                         <div>
+                             <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
+                                <span>Clé Secrète Binance</span>
+                                {tooltips['BINANCE_SECRET_KEY'] && <Tooltip text={tooltips['BINANCE_SECRET_KEY']} />}
+                            </label>
+                             <div className="mt-1 flex rounded-md shadow-sm">
+                                <input
+                                    type="password"
+                                    id="BINANCE_SECRET_KEY"
+                                    value={settings.BINANCE_SECRET_KEY}
+                                    onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)}
+                                    className="block w-full min-w-0 flex-1 rounded-none rounded-l-md border-[#3e4451] bg-[#0c0e12] focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
+                                    placeholder="Conservé en toute sécurité côté serveur"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleTestBinanceConnection}
+                                    disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY}
+                                    className="relative -ml-px inline-flex items-center space-x-2 rounded-r-md border border-[#3e4451] bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 focus:z-10 focus:border-[#f0b90b] focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50"
+                                >
+                                    {isTestingBinance ? <Spinner size="sm" /> : <span>Tester</span>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex justify-end">
-                    <button onClick={handleTestBinanceConnection} disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY} className="inline-flex justify-center rounded-md border border-[#3e4451] bg-gray-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isTestingBinance ? "Test..." : "Tester la Connexion"}
-                    </button>
+
+                <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {renderField('newPassword', "Nouveau Mot de Passe", "password")}
+                        {renderField('confirmPassword', "Confirmer le Mot de Passe", "password")}
+                         <div className="flex items-end">
+                            <button
+                                onClick={handleUpdatePassword}
+                                disabled={isSaving || !newPassword || newPassword !== confirmPassword}
+                                className="w-full inline-flex justify-center rounded-md border border-transparent bg-gray-700 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50"
+                            >
+                                Changer le Mot de Passe
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-6">
-                 <h3 className="text-lg font-semibold text-white">Sécurité & Gestion des Données</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                    {renderField('newPassword', "Nouveau Mot de Passe", 'password')}
-                    {renderField('confirmPassword', "Confirmer le Nouveau Mot de Passe", 'password')}
-                 </div>
-                 <div className="flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-[#2b2f38] mt-6 gap-4">
-                     <button onClick={() => setIsClearModalOpen(true)} disabled={isSaving} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-red-800 bg-transparent py-2 px-4 text-sm font-medium text-red-400 shadow-sm hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        Effacer Toutes les Données
-                    </button>
-                    <button onClick={handleUpdatePassword} disabled={isAnyActionInProgress} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50">
-                        {isSaving ? "Mise à jour..." : "Mettre à jour le Mot de Passe"}
-                    </button>
-                 </div>
+                
+                <div>
+                    <h3 className="text-lg font-semibold text-white mb-4">Zone de Danger</h3>
+                    <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div>
+                            <p className="font-semibold text-red-300">Effacer Toutes les Données de Trading</p>
+                            <p className="text-sm text-red-400 mt-1">
+                                Cette action supprimera définitivement tout l'historique des trades et les positions actives.
+                                Votre solde virtuel sera réinitialisé à la valeur 'Solde Virtuel Initial'. Cette action est irréversible.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsClearModalOpen(true)}
+                            disabled={isSaving}
+                            className="w-full sm:w-auto flex-shrink-0 inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-red-900/20 disabled:opacity-50"
+                        >
+                            Effacer les Données
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
         <Modal
@@ -456,13 +512,13 @@ const SettingsPage: React.FC = () => {
             onClose={() => setIsClearModalOpen(false)}
             onConfirm={handleClearData}
             title="Effacer toutes les données de trading ?"
-            confirmText="Oui, Effacer les Données"
+            confirmText="Oui, tout effacer"
             confirmVariant="danger"
         >
-            Cette action est irréversible. Elle supprimera définitivement tout l'historique des trades 
-            et réinitialisera votre solde virtuel. Êtes-vous sûr de vouloir continuer ?
-      </Modal>
-      </>
+            Êtes-vous absolument sûr ? Cette action ne peut pas être annulée. Tout l'historique des trades
+            et les positions en cours seront perdus.
+        </Modal>
+        </>
     );
 };
 
