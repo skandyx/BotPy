@@ -270,15 +270,15 @@ class RealtimeAnalyzer {
     // Phase 1: 15m analysis to qualify pairs for the Hotlist
     analyze15mIndicators(symbolOrPair) {
         const symbol = typeof symbolOrPair === 'string' ? symbolOrPair : symbolOrPair.symbol;
-        const pairToUpdate = typeof symbolOrPair === 'string' 
-            ? botState.scannerCache.find(p => p.symbol === symbol) 
+        const pairToUpdate = typeof symbolOrPair === 'string'
+            ? botState.scannerCache.find(p => p.symbol === symbol)
             : symbolOrPair;
 
         if (!pairToUpdate) return;
 
         const klines15m = this.klineData.get(symbol)?.get('15m');
         if (!klines15m || klines15m.length < this.SQUEEZE_LOOKBACK) return;
-        
+
         const old_score = pairToUpdate.score;
         const old_hotlist_status = pairToUpdate.is_on_hotlist;
 
@@ -288,34 +288,45 @@ class RealtimeAnalyzer {
 
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
         const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
-        const lastBB = bbResult[bbResult.length - 1];
-        if (!lastBB || !atrResult.length) return;
-        
-        pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
-        const bbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
-        pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: bbWidthPct };
 
-        const historicalWidths = bbResult.slice(0, -1).map(b => (b.upper - b.lower) / b.middle);
+        // Correction: Need at least 2 BB points to check the previous one, and enough ATR results.
+        if (bbResult.length < 2 || !atrResult.length) return;
+
+        pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
+
+        // --- CORE LOGIC CORRECTION: Squeeze detection on the PREVIOUS candle ---
+        const lastCandle = klines15m[klines15m.length - 1];
+        const lastBB = bbResult[bbResult.length - 1];
+        const previousBB = bbResult[bbResult.length - 2];
+        const previousBbWidthPct = (previousBB.upper - previousBB.lower) / previousBB.middle * 100;
+
+        // Update pair with CURRENT BB width for display purposes
+        const currentBbWidthPct = (lastBB.upper - lastBB.lower) / lastBB.middle * 100;
+        pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: currentBbWidthPct };
+
+        // Historical context for squeeze should be relative to the PREVIOUS candle
+        const historicalWidths = bbResult.slice(0, -2).map(b => (b.upper - b.lower) / b.middle);
+        if (historicalWidths.length < this.SQUEEZE_LOOKBACK - 2) return; // Ensure enough data for a valid percentile
+
         const sortedWidths = [...historicalWidths].sort((a, b) => a - b);
         const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
-        
-        const currentSqueezeStatus = bbWidthPct <= squeezeThreshold;
-        pairToUpdate.is_in_squeeze_15m = currentSqueezeStatus;
+
+        const wasInSqueeze = previousBbWidthPct <= squeezeThreshold;
+        pairToUpdate.is_in_squeeze_15m = wasInSqueeze; // Store the critical squeeze state from the previous candle
 
         const volumes15m = klines15m.map(k => k.volume);
         const avgVolume = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
         pairToUpdate.volume_20_period_avg_15m = avgVolume;
-        
-        const lastCandle = klines15m[klines15m.length - 1];
+
         const volumeConditionMet = lastCandle.volume > (avgVolume * 2);
 
-        // --- New "Hotlist" Logic ---
+        // --- "Hotlist" Logic using the CORRECTED squeeze state ---
         const isTrendOK = pairToUpdate.price_above_ema50_4h === true;
-        const isOnHotlist = isTrendOK && currentSqueezeStatus;
+        const isOnHotlist = isTrendOK && wasInSqueeze; // Key change: Use `wasInSqueeze`
         pairToUpdate.is_on_hotlist = isOnHotlist;
-        
+
         if (isOnHotlist && !old_hotlist_status) {
-            this.log('SCANNER', `[HOTLIST ADDED] ${symbol} now meets macro conditions.`);
+            this.log('SCANNER', `[HOTLIST ADDED] ${symbol} now meets macro conditions (Trend OK, Squeeze on previous candle). Watching on 1m.`);
             addSymbolTo1mStream(symbol);
         } else if (!isOnHotlist && old_hotlist_status) {
             this.log('SCANNER', `[HOTLIST REMOVED] ${symbol} no longer meets macro conditions.`);
@@ -324,28 +335,31 @@ class RealtimeAnalyzer {
 
         let finalScore = 'HOLD';
         if (isOnHotlist) finalScore = 'COMPRESSION';
-        
+
         const isBreakout = lastCandle.close > lastBB.upper;
-        if (isBreakout && !isOnHotlist) finalScore = 'FAKE_BREAKOUT';
+        // A "fake breakout" is a breakout without a prior squeeze.
+        if (isBreakout && !wasInSqueeze) {
+            finalScore = 'FAKE_BREAKOUT';
+        }
 
         const cooldownInfo = botState.recentlyLostSymbols.get(symbol);
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
             finalScore = 'COOLDOWN';
         }
-        
+
         const conditions = {
             trend: isTrendOK,
-            squeeze: currentSqueezeStatus,
+            squeeze: wasInSqueeze, // Condition is based on the previous candle's state
             safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD,
-            breakout: isBreakout,
-            volume: volumeConditionMet,
+            breakout: isBreakout, // Breakout is on the current candle
+            volume: volumeConditionMet, // Volume is on the current candle
         };
         const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
         pairToUpdate.conditions = conditions;
         pairToUpdate.conditions_met_count = conditionsMetCount;
         pairToUpdate.score_value = (conditionsMetCount / 5) * 100;
         pairToUpdate.score = finalScore;
-        
+
         if (pairToUpdate.score !== old_score || pairToUpdate.is_on_hotlist !== old_hotlist_status) {
             broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
         }
