@@ -51,99 +51,97 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 
 ---
 
-## 🧠 Trading Strategy Explained: "The Explosive Wave Hunter"
+## 🧠 Trading Strategy Explained: The "Macro-Micro" Precision Hunter
 
-The bot's goal is to enter a position only when a pair, already in a solid uptrend, shows signs of an imminent acceleration. The logic is divided into two phases: Entry Conditions and Exit Rules.
+The bot's core philosophy is to combine a high-level **"Macro"** analysis to find high-probability environments with a low-level **"Micro"** analysis to pinpoint the perfect entry moment. This avoids the "noise" of low timeframes while capturing the explosive start of a move with surgical precision.
 
-### Phase 1: Entry Conditions (When to Buy?)
+### Phase 1: The Macro Radar (Finding High-Interest Zones on 15m/4h)
 
-A `STRONG BUY` signal is triggered only if all 5 of the following conditions are met in order:
+The bot continuously scans all pairs to identify those that are "primed" for a potential explosive move. Instead of trading immediately, it adds these qualified pairs to a **"Hotlist"** (marked with a 🎯 in the scanner). A pair gets on the Hotlist if it meets two strict criteria:
 
-1.  **TREND FILTER (Context):** The pair must be in a background uptrend.
+1.  **MASTER TREND FILTER (The Context):** The pair must be in a confirmed, powerful long-term uptrend.
     *   **Tool:** 4-hour (4h) chart.
-    *   **Condition:** The current price is **above its 50-period Exponential Moving Average (EMA50)**.
+    *   **Condition:** The current price is **above its 50-period Exponential Moving Average (EMA50)**. This ensures we are only trading with the dominant market momentum.
 
-2.  **PREPARATION (Compression):** The market must show signs of calm before the storm.
+2.  **VOLATILITY COMPRESSION (The Preparation):** The market must be consolidating and building up energy, like a coiled spring.
     *   **Tool:** Bollinger Bands on the 15-minute (15m) chart.
-    *   **Condition:** The Bollinger Bands are tightening ("in a squeeze"), indicating low volatility and an accumulation of energy.
+    *   **Condition:** The pair is in a **Bollinger Band Squeeze**. This is detected when the current width of the bands is in the lowest 25% of its values over the last 50 periods. It signals a period of quiet accumulation before a likely expansion in volatility.
 
-3.  **TRIGGER (Breakout):** The price must break through its immediate resistance.
-    *   **Tool:** Bollinger Bands on the 15-minute (15m) chart.
-    *   **Condition:** A 15-minute candle **closes above the upper Bollinger Band**.
+If both conditions are met, the pair is on the **Hotlist**. The bot now "zooms in" and moves to Phase 2.
 
-4.  **CONFIRMATION (Fuel):** The breakout must be supported by strong buying interest.
-    *   **Tool:** Trading Volume on the 15-minute (15m) chart.
-    *   **Condition:** The volume of the breakout candle is significantly higher than average (e.g., **> 2 times the average of the last 20 candles**).
+### Phase 2: The Micro Trigger (Precision Entry on 1m)
 
-5.  **SAFETY (Anti-Overheating):** We avoid buying a move that is already at its peak.
-    *   **Tool:** RSI on the 1-hour (1h) chart.
-    *   **Condition:** The RSI is **below 75**, indicating the market is not yet in an extreme overbought zone.
+For pairs on the Hotlist, and *only* for these pairs, the bot analyzes every single 1-minute candle, waiting for the exact moment the breakout begins. The trade is triggered instantly when these two micro-conditions are met:
 
+1.  **MOMENTUM SHIFT (The Spark):** The immediate, short-term momentum must flip bullish.
+    *   **Tool:** 9-period Exponential Moving Average (EMA9) on the 1-minute (1m) chart.
+    *   **Condition:** A 1-minute candle **closes above the EMA9**.
 
-### Phase 2: Exit & Trade Management (How the Bot Protects and Maximizes Profits)
+2.  **VOLUME CONFIRMATION (The Fuel):** The breakout must be backed by a surge in buying interest.
+    *   **Tool:** Trading Volume on the 1-minute (1m) chart.
+    *   **Condition:** The volume of the trigger candle is significantly higher than average (e.g., **> 1.5 times the average of the last 20 minutes**).
 
-Exit management is dynamic and adapts to the chosen risk profile (e.g., `PRUDENT`, `EQUILIBRE`). The goal is not just to exit, but to manage the trade intelligently to maximize gains while minimizing risk.
+When this precise combination occurs, the bot enters a `BUY` order immediately, capturing the move far earlier than a strategy based on waiting for a 15-minute candle to close.
+
+### Phase 3: Dynamic Trade Management (Protecting and Maximizing Profits)
+
+Once a trade is open, the exit management is just as critical. It is fully automated and adapts to the chosen risk profile (e.g., `PRUDENT`, `EQUILIBRE`).
 
 1.  **STOP LOSS (Initial Protection):**
-    *   **Placement:** The initial Stop Loss is placed logically just **below the low of the candle that preceded the breakout candle**. This invalidates the breakout scenario if hit.
-    *   **Dynamic Adaptation (ATR):** In `PRUDENT` mode, the Stop Loss distance is calculated using the Average True Range (ATR), which automatically adapts to the pair's current volatility.
+    *   **Placement:** The initial Stop Loss is placed logically just **below the low of the 1-minute trigger candle**. This provides a tight, structurally sound invalidation point for the trade.
+    *   **Dynamic Adaptation (ATR):** In `PRUDENT` mode, the Stop Loss distance can be calculated using the Average True Range (ATR), which automatically adapts to the pair's current volatility.
 
-2.  **ADVANCED TRADE MANAGEMENT (The "Holder" Strategy):**
-    Once a trade is profitable, a sequence of automated actions is triggered to secure gains and let the winner run:
-    *   **Step 1: Partial Take Profit:** As the trade hits an initial profit target (e.g., +0.8%), the bot sells a portion of the position (e.g., 50%). This secures initial profit and reduces the capital at risk.
+2.  **ADVANCED RISK MANAGEMENT (The "Profit Runner" Strategy):**
+    As a trade becomes profitable, a sequence of automated actions is triggered to secure gains and let winners run:
+    *   **Step 1: Partial Take Profit:** As the trade hits an initial profit target (e.g., +0.8% in PRUDENT mode), the bot sells a portion of the position (e.g., 50%). This secures initial profit and significantly reduces the capital at risk.
     *   **Step 2: Move to Break-even:** Immediately after the partial sale, the Stop Loss is moved to the entry price. At this point, **the trade can no longer become a loss**.
-    *   **Step 3: Trailing Stop Loss:** For the remainder of the position, a Trailing Stop Loss is activated. It follows the price as it moves up, locking in more and more profit, but it never moves down. This allows the bot to "hold" the winning position and capture the entirety of a strong upward wave until the trend reverses.
-
----
-
-### ✅ Strengths of the Strategy
-
-1.  **High-Probability Setups**: By combining trend, volatility, and volume, the strategy is highly selective and focuses only on setups with a statistical edge.
-2.  **Context-Aware**: The master trend filter prevents the bot from trading against the primary market direction, avoiding many losing trades in bearish conditions.
-3.  **Clear Invalidation**: The Stop Loss placement is not arbitrary; it's based on the price structure of the breakout, providing a logical point where the trade idea is proven wrong.
-4.  **Disciplined Exits**: Using a fixed Risk/Reward ratio enforces a consistent and disciplined approach to taking profits.
+    *   **Step 3: Trailing Stop Loss:** For the remainder of the position, a Trailing Stop Loss is activated. It follows the price as it moves up, locking in more and more profit, but it never moves down. This allows the bot to "ride the wave" and capture the entirety of a strong upward move until the trend shows signs of reversing.
 
 ---
 # Version Française
 
-## 🧠 Stratégie de Trading : “Le Chasseur de Vagues Explosives”
+## 🧠 Stratégie de Trading : “Le Chasseur de Précision Macro-Micro”
 
-L’objectif est de n’entrer en position que lorsqu’une paire, déjà dans une tendance haussière solide, montre des signes d’une accélération imminente.
+La philosophie du bot est de combiner une analyse **"Macro"** à haute échelle de temps pour trouver des environnements à forte probabilité, avec une analyse **"Micro"** à basse échelle de temps pour identifier le point d'entrée parfait. Cela permet d'éviter le "bruit" des petites unités de temps tout en capturant le début explosif d'un mouvement avec une précision chirurgicale.
 
-### Phase 1 : Les Conditions d’Entrée (Quand acheter ?)
+### Phase 1 : Le Radar Macro (Détection des Zones d'Intérêt sur 15m/4h)
 
-Un signal d’achat `STRONG BUY` est déclenché uniquement si les 5 conditions suivantes sont remplies dans l’ordre :
+Le bot scanne en permanence toutes les paires pour identifier celles qui sont "prêtes" pour un potentiel mouvement explosif. Au lieu de trader immédiatement, il ajoute ces paires qualifiées à une **"Hotlist"** (marquée par une icône 🎯 dans le scanner). Une paire entre sur la Hotlist si elle remplit deux critères stricts :
 
-1.  **FILTRE DE TENDANCE (Contexte)** : La paire doit être dans une tendance haussière de fond.
+1.  **FILTRE DE TENDANCE MAÎTRE (Le Contexte) :** La paire doit être dans une tendance haussière de fond, confirmée et puissante.
     *   **Outil** : Graphique en 4 heures (4h).
-    *   **Condition** : Le prix actuel est au-dessus de sa **Moyenne Mobile Exponentielle 50 (MME50)**.
+    *   **Condition** : Le prix actuel est **au-dessus de sa Moyenne Mobile Exponentielle 50 (MME50)**. Cela garantit que nous ne tradons qu'avec le momentum dominant du marché.
 
-2.  **PRÉPARATION (Compression)** : Le marché doit montrer des signes de calme avant la tempête.
+2.  **COMPRESSION DE VOLATILITÉ (La Préparation) :** Le marché doit se consolider et accumuler de l'énergie, comme un ressort que l'on comprime.
     *   **Outil** : Bandes de Bollinger sur le graphique en 15 minutes (15m).
-    *   **Condition** : Les Bandes de Bollinger se resserrent ("squeeze"), indiquant une faible volatilité.
+    *   **Condition** : La paire est dans un **"Squeeze" des Bandes de Bollinger**. Ceci est détecté lorsque la largeur actuelle des bandes est dans les 25% les plus bas de ses valeurs sur les 50 dernières périodes. Cela signale une période de calme et d'accumulation avant une expansion probable de la volatilité.
 
-3.  **DÉCLENCHEUR (Cassure)** : Le prix doit casser sa résistance immédiate.
-    *   **Outil** : Bandes de Bollinger sur le graphique en 15 minutes (15m).
-    *   **Condition** : Une bougie **clôture au-dessus de la bande de Bollinger supérieure**.
+Si ces deux conditions sont remplies, la paire est ajoutée à la **Hotlist**. Le bot "zoome" alors et passe à la Phase 2.
 
-4.  **CONFIRMATION (Carburant)** : La cassure doit être soutenue par un fort intérêt acheteur.
-    *   **Outil** : Volume des transactions sur le graphique en 15 minutes (15m).
-    *   **Condition** : Le volume de la bougie de cassure est nettement supérieur à la moyenne (ex: **> 2 fois la moyenne des 20 dernières bougies**).
+### Phase 2 : Le Déclencheur Micro (Entrée de Précision sur 1m)
 
-5.  **SÉCURITÉ (Anti-Surchauffe)** : On évite d’acheter un mouvement déjà à son sommet.
-    *   **Outil** : RSI sur le graphique en 1 heure (1h).
-    *   **Condition** : Le **RSI est inférieur à 75**.
+Pour les paires sur la Hotlist, et *uniquement* pour celles-ci, le bot analyse chaque bougie de 1 minute, attendant le moment exact où la cassure commence. Le trade est déclenché instantanément lorsque ces deux micro-conditions sont réunies :
 
-### Phase 2 : Les Règles de Sortie & Gestion du Trade (Protéger et Maximiser les Gains)
+1.  **CHANGEMENT DE MOMENTUM (L'Étincelle) :** Le momentum immédiat à très court terme doit basculer à la hausse.
+    *   **Outil** : Moyenne Mobile Exponentielle 9 (MME9) sur le graphique en 1 minute (1m).
+    *   **Condition** : Une bougie de 1 minute **clôture au-dessus de la MME9**.
 
-La gestion de la sortie est dynamique et s'adapte au profil de risque choisi (ex: `PRUDENT`, `EQUILIBRE`). L'objectif n'est pas seulement de sortir, mais de gérer le trade intelligemment pour maximiser les gains tout en minimisant le risque.
+2.  **CONFIRMATION PAR LE VOLUME (Le Carburant) :** La cassure doit être soutenue par une vague d'intérêt acheteur.
+    *   **Outil** : Volume sur le graphique en 1 minute (1m).
+    *   **Condition** : Le volume de la bougie de déclenchement est significativement supérieur à la moyenne (ex: **> 1.5 fois la moyenne des 20 dernières minutes**).
+
+Lorsque cette combinaison précise se produit, le bot ouvre un ordre d'achat (`BUY`) immédiatement, capturant le mouvement bien plus tôt qu'une stratégie qui attendrait la clôture d'une bougie de 15 minutes.
+
+### Phase 3 : Gestion Dynamique du Trade (Protéger et Maximiser les Gains)
+
+Une fois qu'un trade est ouvert, la gestion de la sortie est tout aussi critique. Elle est entièrement automatisée et s'adapte au profil de risque choisi (ex: `PRUDENT`, `EQUILIBRE`).
 
 1.  **STOP LOSS (Protection Initiale)** :
-    *   **Placement** : Le Stop Loss initial est placé logiquement juste en **dessous du point le plus bas de la bougie qui précède la cassure**.
-    *   **Adaptation Dynamique (ATR)** : En mode `PRUDENT`, la distance du Stop Loss est calculée via l'Average True Range (ATR), qui s'adapte automatiquement à la volatilité actuelle de la paire.
+    *   **Placement** : Le Stop Loss initial est placé logiquement juste **en dessous du point bas de la bougie de 1 minute qui a déclenché le trade**. Cela fournit un point d'invalidation serré et structurellement solide.
+    *   **Adaptation Dynamique (ATR)** : En mode `PRUDENT`, la distance du Stop Loss peut être calculée via l'Average True Range (ATR), qui s'adapte automatiquement à la volatilité actuelle de la paire.
 
-2.  **GESTION AVANCÉE DU TRADE (La Stratégie "Holder")** :
-    Dès qu'un trade devient profitable, une séquence d'actions automatiques est déclenchée pour sécuriser les gains et laisser le gagnant courir :
-    *   **Étape 1 : Prise de Profit Partielle** : Lorsque le trade atteint un premier objectif de profit (ex: +0.8%), le bot vend une partie de la position (ex: 50%). Cela sécurise un gain initial et réduit le capital à risque.
+2.  **GESTION AVANCÉE DU RISQUE (La Stratégie "Profit Runner")** :
+    Dès qu'un trade devient profitable, une séquence d'actions automatiques est déclenchée pour sécuriser les gains et laisser les gagnants courir :
+    *   **Étape 1 : Prise de Profit Partielle** : Lorsque le trade atteint un premier objectif (ex: +0.8% en mode PRUDENT), le bot vend une partie de la position (ex: 50%). Cela sécurise un gain initial et réduit considérablement le capital à risque.
     *   **Étape 2 : Mise à Seuil de Rentabilité (Break-even)** : Immédiatement après la vente partielle, le Stop Loss est déplacé au prix d'entrée. À ce stade, **le trade ne peut plus devenir perdant**.
-    *   **Étape 3 : Stop Loss Suiveur (Trailing Stop Loss)** : Pour le reste de la position, un Stop Loss suiveur est activé. Il suit le prix à la hausse, verrouillant de plus en plus de profit, mais ne descend jamais. Cela permet au bot de "Holder" la position gagnante et de capturer l'intégralité d'une forte vague haussière jusqu'à ce que la tendance s'inverse.
+    *   **Étape 3 : Stop Loss Suiveur (Trailing Stop Loss)** : Pour le reste de la position, un Stop Loss suiveur est activé. Il suit le prix à la hausse, verrouillant de plus en plus de profit, mais ne descend jamais. Cela permet au bot de "surfer la vague" et de capturer l'intégralité d'un fort mouvement haussier jusqu'à ce que la tendance montre des signes d'inversion.
