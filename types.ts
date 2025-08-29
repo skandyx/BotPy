@@ -99,11 +99,11 @@ export interface BotStatus {
 
 export interface LogEntry {
     timestamp: string;
-    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'SCANNER' | 'BINANCE_API' | 'BINANCE_WS' | 'API_CLIENT' | 'COINGECKO';
+    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'SCANNER' | 'BINANCE_API' | 'BINANCE_WS' | 'API_CLIENT';
     message: string;
 }
 
-export const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'COINGECKO', 'BINANCE_API', 'BINANCE_WS'];
+export const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'BINANCE_API', 'BINANCE_WS'];
 export type LogTab = 'ALL' | LogEntry['level'];
 
 
@@ -120,8 +120,7 @@ export interface BotSettings {
     
     // Market Scanner & Strategy Filters
     MIN_VOLUME_USD: number;
-    COINGECKO_API_KEY: string;
-    COINGECKO_SYNC_SECONDS: number;
+    SCANNER_DISCOVERY_INTERVAL_SECONDS: number;
     EXCLUDED_PAIRS: string;
     USE_VOLUME_CONFIRMATION: boolean;
     USE_MARKET_REGIME_FILTER: boolean;

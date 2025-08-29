@@ -24,8 +24,7 @@ SLIPPAGE_PCT=0.05
 
 # --- STRATEGY & SCANNER FILTERS ---
 MIN_VOLUME_USD=400000000
-MIN_VOLATILITY_PCT=0.5
-COINGECKO_SYNC_SECONDS=60
+SCANNER_DISCOVERY_INTERVAL_SECONDS=3600
 EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"
 USE_VOLUME_CONFIRMATION=true
 USE_MARKET_REGIME_FILTER=true
@@ -50,7 +49,7 @@ BREAKEVEN_TRIGGER_PCT=0.5
 
 # Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
 # Filtre de sécurité pour éviter d'acheter au sommet.
-USE_RSI_OVERBOUGHT_FILTER=true
+USE_RSI_SAFETY_FILTER=true
 # Le seuil RSI au-dessus duquel un signal d'achat sera ignoré (ex: 70).
 RSI_OVERBOUGHT_THRESHOLD=70
 
@@ -79,4 +78,3 @@ PARABOLIC_FILTER_THRESHOLD_PCT=3.0
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance
 BINANCE_SECRET_KEY=votre_cle_secrete_binance
-COINGECKO_API_KEY=

@@ -8,69 +8,67 @@ import Tooltip from '../components/common/Tooltip';
 import Modal from '../components/common/Modal';
 
 // --- TYPES & PROFILES ---
-type ProfileName = 'PRUDENT' | 'EQUILIBRE' | 'AGRESSIF';
+type ProfileName = 'Le Sniper' | 'Le Scalpeur' | 'Le Chasseur de Volatilité';
 type ActiveProfile = ProfileName | 'PERSONNALISE';
 
+const profileTooltips: Record<ProfileName, string> = {
+    'Le Sniper': "PRUDENT : Vise la qualité maximale. Filtres très stricts et gestion 'Profit Runner' pour laisser courir les gagnants au maximum.",
+    'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Take profit très serré, idéal pour les marchés en range.",
+    'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour les marchés explosifs. Filtres de sécurité désactivés et gestion du risque adaptée à une forte volatilité."
+};
+
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
-    PRUDENT: {
+    'Le Sniper': { // PRUDENT
         POSITION_SIZE_PCT: 2.0,
         MAX_OPEN_POSITIONS: 3,
-        STOP_LOSS_PCT: 2.0,
-        TAKE_PROFIT_PCT: 10.0,
         REQUIRE_STRONG_BUY: true,
-        USE_MARKET_REGIME_FILTER: true,
-        USE_VOLUME_CONFIRMATION: true, // Requires volume
-        USE_RSI_SAFETY_FILTER: true, // Requires RSI check
-        RSI_OVERBOUGHT_THRESHOLD: 65, // Stricter RSI
-        USE_ATR_STOP_LOSS: true,
-        ATR_MULTIPLIER: 1.5,
-        USE_TRAILING_STOP_LOSS: true,
-        USE_AUTO_BREAKEVEN: true,
-        BREAKEVEN_TRIGGER_PCT: 1.0,
-        USE_PARTIAL_TAKE_PROFIT: true,
-        PARTIAL_TP_TRIGGER_PCT: 0.8,
-        PARTIAL_TP_SELL_QTY_PCT: 50,
+        USE_RSI_SAFETY_FILTER: true,
+        RSI_OVERBOUGHT_THRESHOLD: 65,
         USE_PARABOLIC_FILTER: true,
         PARABOLIC_FILTER_PERIOD_MINUTES: 5,
         PARABOLIC_FILTER_THRESHOLD_PCT: 2.5,
-    },
-    EQUILIBRE: {
-        POSITION_SIZE_PCT: 3.0,
-        MAX_OPEN_POSITIONS: 5,
-        STOP_LOSS_PCT: 2.5,
-        TAKE_PROFIT_PCT: 4.0,
-        REQUIRE_STRONG_BUY: false,
-        USE_MARKET_REGIME_FILTER: true,
-        USE_VOLUME_CONFIRMATION: false, // Volume check disabled
-        USE_RSI_SAFETY_FILTER: true, // RSI check still active
-        RSI_OVERBOUGHT_THRESHOLD: 70,
-        USE_ATR_STOP_LOSS: false,
+        USE_ATR_STOP_LOSS: true,
         ATR_MULTIPLIER: 1.5,
-        USE_TRAILING_STOP_LOSS: true,
+        USE_PARTIAL_TAKE_PROFIT: true,
+        PARTIAL_TP_TRIGGER_PCT: 0.8,
+        PARTIAL_TP_SELL_QTY_PCT: 50,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 1.0,
-        USE_PARTIAL_TAKE_PROFIT: false,
+        USE_TRAILING_STOP_LOSS: true,
+        TRAILING_STOP_LOSS_PCT: 2.5, // Wide trailing stop
+        TAKE_PROFIT_PCT: 15.0, // High target, rely on trailing
+    },
+    'Le Scalpeur': { // EQUILIBRE
+        POSITION_SIZE_PCT: 3.0,
+        MAX_OPEN_POSITIONS: 5,
+        REQUIRE_STRONG_BUY: false,
+        USE_RSI_SAFETY_FILTER: true,
+        RSI_OVERBOUGHT_THRESHOLD: 70,
         USE_PARABOLIC_FILTER: true,
         PARABOLIC_FILTER_PERIOD_MINUTES: 5,
         PARABOLIC_FILTER_THRESHOLD_PCT: 3.5,
+        USE_ATR_STOP_LOSS: false,
+        STOP_LOSS_PCT: 2.0,
+        TAKE_PROFIT_PCT: 1.5, // Very tight TP
+        USE_PARTIAL_TAKE_PROFIT: false,
+        USE_AUTO_BREAKEVEN: false,
+        USE_TRAILING_STOP_LOSS: false,
     },
-    AGRESSIF: {
+    'Le Chasseur de Volatilité': { // AGRESSIF
         POSITION_SIZE_PCT: 4.0,
         MAX_OPEN_POSITIONS: 8,
-        STOP_LOSS_PCT: 3.5,
-        TAKE_PROFIT_PCT: 6.0,
         REQUIRE_STRONG_BUY: false,
-        USE_MARKET_REGIME_FILTER: true,
-        USE_VOLUME_CONFIRMATION: false, // Volume check disabled
-        USE_RSI_SAFETY_FILTER: false, // RSI check also disabled
-        RSI_OVERBOUGHT_THRESHOLD: 75,
-        USE_ATR_STOP_LOSS: false,
-        USE_AUTO_BREAKEVEN: false,
-        BREAKEVEN_TRIGGER_PCT: 1.5,
+        USE_RSI_SAFETY_FILTER: false, // Filters off
+        RSI_OVERBOUGHT_THRESHOLD: 80,
+        USE_PARABOLIC_FILTER: false, // Filters off
+        USE_ATR_STOP_LOSS: true, // Wider ATR SL to survive volatility
+        ATR_MULTIPLIER: 2.0,
+        TAKE_PROFIT_PCT: 10.0,
         USE_PARTIAL_TAKE_PROFIT: false,
-        USE_PARABOLIC_FILTER: false,
-        PARABOLIC_FILTER_PERIOD_MINUTES: 3,
-        PARABOLIC_FILTER_THRESHOLD_PCT: 5.0,
+        USE_AUTO_BREAKEVEN: true,
+        BREAKEVEN_TRIGGER_PCT: 2.0,
+        USE_TRAILING_STOP_LOSS: true,
+        TRAILING_STOP_LOSS_PCT: 1.2, // Tight, aggressive trailing stop
     }
 };
 
@@ -86,8 +84,7 @@ const tooltips: Record<string, string> = {
     TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
     SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
-    COINGECKO_API_KEY: "Votre clé API CoinGecko (par exemple, du plan gratuit 'Demo'). L'utilisation d'une clé fournit des réponses API plus fiables et plus rapides pour le scan du marché.",
-    COINGECKO_SYNC_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
+    SCANNER_DISCOVERY_INTERVAL_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, une cassure (breakout) n'est valide que si le volume est significativement supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
     USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si la structure du marché à long terme (basée sur les MA 50/200 sur le graphique 4h) est dans une TENDANCE HAUSSIÈRE confirmée.",
     REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
@@ -118,7 +115,6 @@ const SettingsPage: React.FC = () => {
     const [settings, setSettings] = useState<BotSettings | null>(contextSettings);
     const [activeProfile, setActiveProfile] = useState<ActiveProfile>('PERSONNALISE');
     const [isSaving, setIsSaving] = useState(false);
-    const [isTestingCoinGecko, setIsTestingCoinGecko] = useState(false);
     const [isTestingBinance, setIsTestingBinance] = useState(false);
     const [saveMessage, setSaveMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
     const [newPassword, setNewPassword] = useState('');
@@ -138,21 +134,22 @@ const SettingsPage: React.FC = () => {
         const checkProfile = (profile: Partial<BotSettings>): boolean => {
             return Object.keys(profile).every(key => {
                 const settingKey = key as keyof BotSettings;
+                if (!settings.hasOwnProperty(settingKey)) return false; // Ensure the key exists on the main settings object
                 // Handle potential floating point inaccuracies for numeric comparisons
-                if (typeof settings[settingKey] === 'number') {
-                    return Math.abs((settings[settingKey] as number) - (profile[settingKey] as number)) < 0.001;
+                if (typeof settings[settingKey] === 'number' && typeof profile[settingKey] === 'number') {
+                     return Math.abs((settings[settingKey] as number) - (profile[settingKey] as number)) < 0.001;
                 }
                 return settings[settingKey] === profile[settingKey];
             });
         };
 
         let currentProfile: ActiveProfile = 'PERSONNALISE';
-        if (checkProfile(settingProfiles.PRUDENT)) {
-            currentProfile = 'PRUDENT';
-        } else if (checkProfile(settingProfiles.EQUILIBRE)) {
-            currentProfile = 'EQUILIBRE';
-        } else if (checkProfile(settingProfiles.AGRESSIF)) {
-            currentProfile = 'AGRESSIF';
+        if (checkProfile(settingProfiles['Le Sniper'])) {
+            currentProfile = 'Le Sniper';
+        } else if (checkProfile(settingProfiles['Le Scalpeur'])) {
+            currentProfile = 'Le Scalpeur';
+        } else if (checkProfile(settingProfiles['Le Chasseur de Volatilité'])) {
+            currentProfile = 'Le Chasseur de Volatilité';
         }
         
         if (currentProfile !== activeProfile) {
@@ -192,22 +189,6 @@ const SettingsPage: React.FC = () => {
             showMessage(`Échec de la sauvegarde des paramètres : ${error.message}`, 'error');
         } finally {
             setIsSaving(false);
-        }
-    };
-
-    const handleTestCoinGeckoConnection = async () => {
-        if (!settings || !settings.COINGECKO_API_KEY) {
-            showMessage("Veuillez d'abord entrer une clé API CoinGecko.", 'error');
-            return;
-        }
-        setIsTestingCoinGecko(true);
-        try {
-            const result = await api.testCoinGeckoConnection(settings.COINGECKO_API_KEY);
-            showMessage(result.message, result.success ? 'success' : 'error');
-        } catch (error: any) {
-            showMessage(error.message || 'La connexion à CoinGecko a échoué.', 'error');
-        } finally {
-            setIsTestingCoinGecko(false);
         }
     };
 
@@ -345,21 +326,26 @@ const SettingsPage: React.FC = () => {
             
              {/* Profile Selector */}
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                <h3 className="text-lg font-semibold text-white mb-1">Profil de Configuration Rapide</h3>
-                <p className="text-sm text-gray-400 mb-4">Sélectionnez un profil pour charger rapidement un ensemble de paramètres prédéfinis. Tout changement manuel vous fera passer au profil "Personnalisé".</p>
+                <h3 className="text-lg font-semibold text-white mb-1">Profil de Comportement Adaptatif</h3>
+                <p className="text-sm text-gray-400 mb-4">Sélectionnez un profil pour adapter la stratégie du bot aux conditions actuelles du marché. Tout changement manuel vous fera passer au profil "Personnalisé".</p>
                 <div className="isolate inline-flex rounded-md shadow-sm">
-                    {(['PRUDENT', 'EQUILIBRE', 'AGRESSIF'] as ProfileName[]).map((profile, idx) => (
+                    {(['Le Sniper', 'Le Scalpeur', 'Le Chasseur de Volatilité'] as ProfileName[]).map((profile, idx) => (
                         <button
                             key={profile}
                             type="button"
                             onClick={() => handleProfileSelect(profile)}
-                            className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-[#3e4451] focus:z-10 transition-colors
+                            className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-[#3e4451] focus:z-10 transition-colors group
                                 ${activeProfile === profile ? 'bg-[#f0b90b] text-black' : 'bg-[#14181f] text-gray-300 hover:bg-[#2b2f38]'}
                                 ${idx === 0 ? 'rounded-l-md' : ''}
                                 ${idx === 2 ? 'rounded-r-md' : '-ml-px'}
                             `}
                         >
                             {profile}
+                             <div className="absolute bottom-full mb-2 w-64 rounded-lg bg-gray-900 border border-gray-700 p-3 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10 shadow-lg"
+                                   style={{ transform: 'translateX(-50%)', left: '50%' }}>
+                                {profileTooltips[profile]}
+                                <div className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 bg-gray-900 border-b border-r border-gray-700" style={{ transform: 'translateX(-50%) rotate(45deg)' }}></div>
+                              </div>
                         </button>
                     ))}
                 </div>
@@ -418,7 +404,7 @@ const SettingsPage: React.FC = () => {
                         <h3 className="text-lg font-semibold text-white mb-4">Scanner de Marché</h3>
                         <div className="grid grid-cols-1 gap-4">
                             <InputField id="MIN_VOLUME_USD" label="Volume 24h Minimum" step="1000000" children={<span className="text-gray-400 text-sm">$</span>}/>
-                            <InputField id="COINGECKO_SYNC_SECONDS" label="Intervalle de Scan (secondes)" children={<span className="text-gray-400 text-sm">s</span>}/>
+                            <InputField id="SCANNER_DISCOVERY_INTERVAL_SECONDS" label="Intervalle de Scan (secondes)" children={<span className="text-gray-400 text-sm">s</span>}/>
                             <div>
                                 <label htmlFor="EXCLUDED_PAIRS" className="flex items-center text-sm font-medium text-gray-300">
                                     Paires Exclues (séparées par des virgules)
@@ -488,16 +474,6 @@ const SettingsPage: React.FC = () => {
                         </div>
                          <button onClick={handleTestBinanceConnection} disabled={isTestingBinance} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
                              {isTestingBinance ? <Spinner size="sm" /> : 'Tester la Connexion Binance'}
-                         </button>
-                         <hr className="border-gray-700"/>
-                          <div>
-                            <label htmlFor="COINGECKO_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
-                                Clé API CoinGecko <Tooltip text={tooltips.COINGECKO_API_KEY} />
-                            </label>
-                            <input type="text" id="COINGECKO_API_KEY" value={settings.COINGECKO_API_KEY} onChange={(e) => handleChange('COINGECKO_API_KEY', e.target.value)} className={inputClass} />
-                        </div>
-                         <button onClick={handleTestCoinGeckoConnection} disabled={isTestingCoinGecko} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
-                             {isTestingCoinGecko ? <Spinner size="sm" /> : 'Tester la Connexion CoinGecko'}
                          </button>
                      </div>
                  </div>

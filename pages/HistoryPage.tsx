@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { Trade, OrderSide, TradingMode, ScannedPair } from '../types';
@@ -6,6 +5,7 @@ import Spinner from '../components/common/Spinner';
 import StatCard from '../components/common/StatCard';
 import { useAppContext } from '../contexts/AppContext';
 import { SearchIcon, ExportIcon } from '../components/icons/Icons';
+import TradingViewWidget from '../components/common/TradingViewWidget';
 
 
 // --- TYPE DEFINITIONS ---
@@ -75,6 +75,7 @@ const HistoryPage: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<SortConfig | null>({ key: 'entry_time', direction: 'desc' });
   const [symbolFilter, setSymbolFilter] = useState('');
   const { tradeActivityCounter } = useAppContext();
+  const [selectedTradeForChart, setSelectedTradeForChart] = useState<Trade | null>(null);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -196,6 +197,53 @@ const HistoryPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-white">Historique des Transactions</h2>
+
+       {selectedTradeForChart && (
+        <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-3 sm:p-5 shadow-lg relative">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">
+                    Analyse du Trade : {selectedTradeForChart.symbol} (ID: {selectedTradeForChart.id})
+                </h3>
+                <button 
+                    onClick={() => setSelectedTradeForChart(null)} 
+                    className="text-gray-400 hover:text-white text-2xl leading-none absolute top-3 right-4 z-10"
+                    aria-label="Fermer le graphique"
+                >
+                   &times;
+                </button>
+            </div>
+            <TradingViewWidget 
+                symbol={selectedTradeForChart.symbol} 
+                defaultInterval="1"
+            />
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mt-4 text-sm">
+                <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">Entrée</div>
+                    <div className="font-semibold">${formatPrice(selectedTradeForChart.entry_price)}</div>
+                </div>
+                <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">Sortie</div>
+                    <div className="font-semibold">${formatPrice(selectedTradeForChart.exit_price)}</div>
+                </div>
+                 <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">PnL ($)</div>
+                    <div className={`font-semibold ${getPnlClass(selectedTradeForChart.pnl || 0)}`}>${selectedTradeForChart.pnl?.toFixed(2) ?? 'N/A'}</div>
+                </div>
+                 <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">PnL (%)</div>
+                    <div className={`font-semibold ${getPnlClass(selectedTradeForChart.pnl_pct || 0)}`}>{selectedTradeForChart.pnl_pct?.toFixed(2) ?? 'N/A'}%</div>
+                </div>
+                 <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">Heure Entrée</div>
+                    <div className="font-mono text-xs">{new Date(selectedTradeForChart.entry_time).toLocaleTimeString()}</div>
+                </div>
+                 <div className="bg-[#0c0e12]/50 p-2 rounded-md">
+                    <div className="text-gray-400 text-xs">Heure Sortie</div>
+                    <div className="font-mono text-xs">{selectedTradeForChart.exit_time ? new Date(selectedTradeForChart.exit_time).toLocaleTimeString() : 'N/A'}</div>
+                </div>
+            </div>
+        </div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          <StatCard title="P&L Total" value={`$${totalPnl.toFixed(2)}`} valueClassName={getPnlClass(totalPnl)} subtitle="Basé sur les filtres actuels" />
@@ -246,7 +294,11 @@ const HistoryPage: React.FC = () => {
                 </thead>
                 <tbody className="bg-[#14181f]/50 divide-y divide-[#2b2f38]">
                     {filteredAndSortedTrades.map(trade => (
-                        <tr key={trade.id}>
+                        <tr 
+                            key={trade.id}
+                            onClick={() => setSelectedTradeForChart(trade)}
+                            className="hover:bg-[#2b2f38]/50 cursor-pointer transition-colors"
+                        >
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">

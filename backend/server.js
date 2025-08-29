@@ -169,8 +169,7 @@ const loadData = async () => {
             TRAILING_STOP_LOSS_PCT: parseFloat(process.env.TRAILING_STOP_LOSS_PCT) || 1.5,
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
             MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 10000000,
-            COINGECKO_API_KEY: process.env.COINGECKO_API_KEY || '',
-            COINGECKO_SYNC_SECONDS: parseInt(process.env.COINGECKO_SYNC_SECONDS, 10) || 3600, // Scan less often
+            SCANNER_DISCOVERY_INTERVAL_SECONDS: parseInt(process.env.SCANNER_DISCOVERY_INTERVAL_SECONDS, 10) || 3600,
             EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
             USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
             USE_MARKET_REGIME_FILTER: process.env.USE_MARKET_REGIME_FILTER === 'true',
@@ -876,7 +875,7 @@ const startBot = () => {
     
     // Initial scan, then set interval
     runScannerCycle(); 
-    scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    scannerInterval = setInterval(runScannerCycle, botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
     
     setInterval(() => {
         if (botState.isRunning) {
@@ -973,10 +972,10 @@ app.post('/api/settings', requireAuth, async (req, res) => {
     realtimeAnalyzer.updateSettings(botState.settings);
     
     // Restart scanner interval only if the timing changed
-    if (botState.settings.COINGECKO_SYNC_SECONDS !== oldSettings.COINGECKO_SYNC_SECONDS) {
-        log('INFO', `Scanner interval updated to ${botState.settings.COINGECKO_SYNC_SECONDS} seconds.`);
+    if (botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS !== oldSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS) {
+        log('INFO', `Scanner interval updated to ${botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS} seconds.`);
         if (scannerInterval) clearInterval(scannerInterval);
-        scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+        scannerInterval = setInterval(runScannerCycle, botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
     }
     
     res.json({ success: true });
@@ -1074,24 +1073,6 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
 });
 
 // --- CONNECTION TESTS ---
-app.post('/api/test-coingecko', requireAuth, async (req, res) => {
-    const apiKey = req.body.apiKey;
-    const url = apiKey 
-        ? `https://api.coingecko.com/api/v3/ping?x_cg_demo_api_key=${apiKey}`
-        : `https://api.coingecko.com/api/v3/ping`;
-    try {
-        const response = await fetch(url);
-        if (response.ok) {
-            res.json({ success: true, message: "Connexion à CoinGecko réussie !" });
-        } else {
-            const errorBody = await response.json();
-            throw new Error(errorBody.error || `Status: ${response.status}`);
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, message: `Échec de la connexion à CoinGecko : ${error.message}` });
-    }
-});
-
 app.post('/api/test-connection', requireAuth, async (req, res) => {
     // This just tests if the Binance API is reachable, not the key validity
     try {

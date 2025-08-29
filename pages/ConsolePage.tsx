@@ -46,7 +46,6 @@ const ConsolePage: React.FC = () => {
       case 'TRADE': return 'text-green-400';
       case 'WEBSOCKET': return 'text-purple-400';
       case 'SCANNER': return 'text-blue-400';
-      case 'COINGECKO': return 'text-lime-400';
       case 'BINANCE_API': return 'text-orange-400';
       case 'BINANCE_WS': return 'text-amber-500';
       default: return 'text-gray-400';
