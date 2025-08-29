@@ -1,3 +1,4 @@
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -64,7 +65,14 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
             log('WEBSOCKET', `Received message from client: ${JSON.stringify(data)}`);
-            // The frontend no longer dictates subscriptions; the backend pushes all monitored pairs.
+            
+            if (data.type === 'GET_FULL_SCANNER_LIST') {
+                log('WEBSOCKET', 'Client requested full scanner list. Sending...');
+                ws.send(JSON.stringify({
+                    type: 'FULL_SCANNER_LIST',
+                    payload: botState.scannerCache
+                }));
+            }
         } catch (e) {
             log('ERROR', `Failed to parse message from client: ${message}`);
         }

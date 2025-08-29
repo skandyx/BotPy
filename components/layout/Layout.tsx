@@ -33,8 +33,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 scannerStore.updateSettings(settingsData);
                 scannerStore.initialize();
 
-                const pairs = await api.fetchScannedPairs();
-                scannerStore.updatePairList(pairs);
+                // The initial scanner list will now be populated via WebSocket request
+                // after the connection is established. This is more reliable.
             } catch (error) {
                 logService.log('ERROR', `Failed to initialize app data: ${error}`);
             }

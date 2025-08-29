@@ -1,3 +1,4 @@
+
 import { WebSocketStatus, LogEntry } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
@@ -17,7 +18,6 @@ let statusCallback: StatusChangeCallback | null = null;
 let dataRefreshCallback: DataRefreshCallback | null = null;
 let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
-let watchedSymbols = new Set<string>();
 
 const getWebSocketURL = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -41,18 +41,25 @@ const connect = () => {
     socket.onopen = () => {
         logService.log('WEBSOCKET', 'Successfully connected to backend.');
         statusCallback?.(WebSocketStatus.CONNECTED);
-        subscribeToSymbols(Array.from(watchedSymbols));
+
+        // Request the full, current state of the scanner from the backend
+        if (socket && socket.readyState === WebSocket.OPEN) {
+             socket.send(JSON.stringify({ type: 'GET_FULL_SCANNER_LIST' }));
+        }
     };
 
     socket.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
             switch (message.type) {
+                case 'FULL_SCANNER_LIST':
+                    logService.log('WEBSOCKET', `Received full scanner list with ${message.payload.length} pairs.`);
+                    scannerStore.updatePairList(message.payload);
+                    break;
                 case 'PRICE_UPDATE':
                     priceStore.updatePrice(message.payload);
                     break;
                 case 'SCANNER_UPDATE':
-                    // This is the new primary message for real-time indicator/score updates
                     scannerStore.handleScannerUpdate(message.payload);
                     break;
                 case 'POSITIONS_UPDATED':
@@ -95,27 +102,15 @@ const connect = () => {
 const disconnect = () => {
     isManualDisconnect = true;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    watchedSymbols.clear();
     if (socket) {
         socket.close();
         socket = null;
     }
 };
 
-const subscribeToSymbols = (symbols: string[]) => {
-    watchedSymbols = new Set(symbols);
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        logService.log('WEBSOCKET', `Sending subscription request for ${symbols.length} symbols.`);
-        socket.send(JSON.stringify({ type: 'SUBSCRIBE', symbols }));
-    } else {
-        logService.log('WEBSOCKET', 'Socket not open. Subscription deferred until connection is established.');
-    }
-};
-
 export const websocketService = {
     connect,
     disconnect,
-    subscribeToSymbols,
     onStatusChange: (callback: StatusChangeCallback | null) => {
         statusCallback = callback;
     },
