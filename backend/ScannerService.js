@@ -3,6 +3,8 @@ import path from 'path';
 import fetch from 'node-fetch';
 import { SMA, ADX, MACD, RSI, EMA } from 'technicalindicators';
 
+const FIAT_CURRENCIES = ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'HKD', 'NZD', 'SEK', 'KRW', 'SGD', 'NOK', 'MXN', 'INR', 'RUB', 'ZAR', 'TRY', 'BRL'];
+
 export class ScannerService {
     constructor(log, klineDataDir) {
         this.log = log;
@@ -50,9 +52,15 @@ export class ScannerService {
             if (!Array.isArray(allTickers)) throw new Error('Binance API did not return an array.');
 
             const excluded = settings.EXCLUDED_PAIRS.split(',').map(p => p.trim());
+            const containsFiat = (symbol) => {
+                const base = symbol.replace('USDT', '');
+                return FIAT_CURRENCIES.includes(base);
+            };
+
             return allTickers
                 .filter(ticker => 
                     ticker.symbol.endsWith('USDT') &&
+                    !containsFiat(ticker.symbol) &&
                     parseFloat(ticker.quoteVolume) > settings.MIN_VOLUME_USD &&
                     !excluded.includes(ticker.symbol)
                 )

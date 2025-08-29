@@ -14,26 +14,26 @@ interface TradingViewWidgetProps {
 
 const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultInterval = "15" }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const widgetRef = useRef<any>(null);
-  // Give the container a unique ID for TradingView to hook into
-  const containerId = `tradingview_widget_${symbol.replace(/[^a-zA-Z0-9]/g, '')}_${Date.now()}`;
-
+  const widgetRef = useRef<any>(null); // To hold the widget instance
+  
+  // A stable ID is crucial. It only changes when the symbol changes, preventing unnecessary re-renders.
+  const containerId = `tradingview_widget_${symbol.replace(/[^a-zA-Z0-9]/g, '')}`;
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    let isMounted = true;
-    
     const createWidget = () => {
-        if (!isMounted || !containerRef.current || !window.TradingView?.widget) {
+        if (!containerRef.current || !window.TradingView?.widget) {
+            console.error("TradingView script not loaded or container not ready.");
             return;
         }
 
-        // Clean up any previous widget instance before creating a new one
+        // If a widget instance from a previous render/symbol already exists, remove it first.
+        // This is the core of the cleanup logic.
         if (widgetRef.current) {
             widgetRef.current.remove();
             widgetRef.current = null;
         }
+        
+        // The container might have leftover elements if remove() fails, so we explicitly clear it.
         containerRef.current.innerHTML = '';
 
         const widgetOptions = {
@@ -54,33 +54,28 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultIn
             calendar: true,
         };
         
+        // Store the new widget instance in the ref for future cleanup.
         widgetRef.current = new window.TradingView.widget(widgetOptions);
     };
-
-    // If the TradingView script is already available, create the widget directly.
-    if (window.TradingView) {
+    
+    // The script is loaded once via index.html. We just need to check if it's available.
+    if (window.TradingView && window.TradingView.widget) {
         createWidget();
     } else {
-        // If not, find the script tag and add a one-time listener.
+        // If the script is still loading, wait for it.
         const script = document.querySelector('script[src="https://s3.tradingview.com/tv.js"]');
-        if (script) {
-            script.addEventListener('load', createWidget);
-        }
+        script?.addEventListener('load', createWidget, { once: true });
     }
 
-    // Cleanup function when the component unmounts or dependencies change
+    // This cleanup function runs when the component unmounts (e.g., page navigation)
+    // or when the dependencies (symbol) change, right before the effect runs again.
     return () => {
-        isMounted = false;
-        const script = document.querySelector('script[src="https://s3.tradingview.com/tv.js"]');
-        if (script) {
-            script.removeEventListener('load', createWidget);
-        }
         if (widgetRef.current) {
             widgetRef.current.remove();
             widgetRef.current = null;
         }
     };
-  }, [symbol, defaultInterval, containerId]); // Depend on containerId to ensure re-creation
+  }, [symbol, defaultInterval, containerId]); // Re-run effect ONLY if the symbol, interval, or stable ID changes.
 
   return (
     <div 
@@ -91,5 +86,4 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultIn
   );
 };
 
-// Use React.memo to prevent unnecessary re-renders if props haven't changed
 export default memo(TradingViewWidget);
