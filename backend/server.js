@@ -936,12 +936,30 @@ app.get('/api/settings', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, async (req, res) => {
+    const oldSettings = { ...botState.settings };
+    
+    // Update settings in memory
     botState.settings = { ...botState.settings, ...req.body };
+    
+    // If virtual balance setting is changed while in VIRTUAL mode, update the current balance.
+    if (botState.tradingMode === 'VIRTUAL' && botState.settings.INITIAL_VIRTUAL_BALANCE !== oldSettings.INITIAL_VIRTUAL_BALANCE) {
+        botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
+        log('INFO', `Virtual balance was adjusted to match new setting: $${botState.balance}`);
+        await saveData('state'); // Persist the new balance
+        // Trigger a refresh on the frontend to show the new balance.
+        broadcast({ type: 'POSITIONS_UPDATED' });
+    }
+
     await saveData('settings');
     realtimeAnalyzer.updateSettings(botState.settings);
-    // Restart scanner interval with new settings
-    if (scannerInterval) clearInterval(scannerInterval);
-    scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    
+    // Restart scanner interval only if the timing changed
+    if (botState.settings.COINGECKO_SYNC_SECONDS !== oldSettings.COINGECKO_SYNC_SECONDS) {
+        log('INFO', `Scanner interval updated to ${botState.settings.COINGECKO_SYNC_SECONDS} seconds.`);
+        if (scannerInterval) clearInterval(scannerInterval);
+        scannerInterval = setInterval(runScannerCycle, botState.settings.COINGECKO_SYNC_SECONDS * 1000);
+    }
+    
     res.json({ success: true });
 });
 
