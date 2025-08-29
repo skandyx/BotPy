@@ -57,17 +57,20 @@ The bot's core philosophy is to combine a high-level **"Macro"** analysis to fin
 
 The process is a multi-stage funnel:
 
-### **Phase 1: Macro Scan & Hotlist Qualification (15m / 4h)**
+### **Phase 1: Macro Scan & Hotlist Qualification (4h / 15m)**
 
-The bot continuously scans all USDT pairs, looking for those that are "primed" for a potential explosive move. Instead of trading immediately, it adds qualified pairs to a **"Hotlist"** (marked with a 🎯 in the scanner). A pair must pass two strict macro filters to be considered:
+The bot continuously scans all USDT pairs, looking for those that are "primed" for a potential explosive move. Instead of trading immediately, it adds qualified pairs to a **"Hotlist"** (marked with a 🎯 in the scanner). A pair must pass three strict macro filters to be considered:
 
 1.  **✅ MASTER TREND FILTER (The Context - 4h Chart):** The pair must be in a confirmed, powerful long-term uptrend.
     *   **Condition:** The current price is **above its 50-period Exponential Moving Average (EMA50)**. This ensures we are only trading with the dominant market momentum.
 
-2.  **✅ VOLATILITY COMPRESSION (The Preparation - 15m Chart):** The market must be consolidating and building up energy, like a coiled spring.
+2.  **✅ VOLUME SPIKE FILTER (The Fuel Check - 4h Chart):** The pair must show a significant increase in recent trading activity, signaling institutional interest.
+    *   **Condition:** The volume of the most recent 4-hour candle is **greater than 2 times the average volume of the previous 20 candles**. This filters out low-conviction moves and focuses on assets "waking up".
+
+3.  **✅ VOLATILITY COMPRESSION (The Preparation - 15m Chart):** The market must be consolidating and building up energy, like a coiled spring.
     *   **Condition:** The pair is in a **Bollinger Band Squeeze**. This is detected when the width of the bands on the *previous* 15m candle was in the lowest 25% of its values over the last 50 periods. It signals quiet accumulation before a likely expansion in volatility.
 
-If both conditions are met, the pair is placed on the **Hotlist**. The bot now "zooms in" and proceeds to Phase 2, analyzing every 1-minute candle for this specific pair.
+If all three conditions are met, the pair is placed on the **Hotlist**. The bot now "zooms in" and proceeds to Phase 2, analyzing every 1-minute candle for this specific pair.
 
 ### **Phase 2: Micro Trigger & Safety Checks (1m)**
 
@@ -135,17 +138,20 @@ La philosophie du bot est de combiner une analyse **"Macro"** à haute échelle 
 
 Le processus est un entonnoir en plusieurs étapes :
 
-### **Phase 1 : Scan Macro & Qualification sur la Hotlist (15m / 4h)**
+### **Phase 1 : Scan Macro & Qualification sur la Hotlist (4h / 15m)**
 
-Le bot scanne en permanence toutes les paires USDT, à la recherche de celles qui sont "prêtes" pour un potentiel mouvement explosif. Au lieu de trader immédiatement, il ajoute les paires qualifiées à une **"Hotlist"** (marquée par un `🎯` dans le scanner). Une paire doit passer deux filtres macro stricts pour être considérée :
+Le bot scanne en permanence toutes les paires USDT, à la recherche de celles qui sont "prêtes" pour un potentiel mouvement explosif. Au lieu de trader immédiatement, il ajoute les paires qualifiées à une **"Hotlist"** (marquée par un `🎯` dans le scanner). Une paire doit passer trois filtres macro stricts pour être considérée :
 
 1.  **✅ FILTRE DE TENDANCE MAÎTRE (Le Contexte - Graphique 4h) :** La paire doit être dans une tendance haussière de fond, confirmée et puissante.
     *   **Condition :** Le prix actuel est **au-dessus de sa Moyenne Mobile Exponentielle 50 (MME50)**. Cela garantit que nous ne tradons qu'avec le momentum dominant du marché.
 
-2.  **✅ COMPRESSION DE VOLATILITÉ (La Préparation - Graphique 15m) :** Le marché doit se consolider et accumuler de l'énergie, comme un ressort que l'on comprime.
+2.  **✅ FILTRE DE PIC DE VOLUME (La Vérification du Carburant - Graphique 4h) :** La paire doit montrer une augmentation significative de son activité récente, signalant un intérêt institutionnel.
+    *   **Condition :** Le volume de la plus récente bougie de 4 heures est **supérieur à 2 fois le volume moyen des 20 bougies précédentes**. Cela élimine les mouvements sans conviction et concentre le bot sur les actifs qui "se réveillent".
+
+3.  **✅ COMPRESSION DE VOLATILITÉ (La Préparation - Graphique 15m) :** Le marché doit se consolider et accumuler de l'énergie, comme un ressort que l'on comprime.
     *   **Condition :** La paire est dans un **"Squeeze" des Bandes de Bollinger**. Ceci est détecté lorsque la largeur des bandes sur la bougie de 15m *précédente* était dans les 25% les plus bas de ses valeurs sur les 50 dernières périodes. Cela signale une accumulation calme avant une expansion probable de la volatilité.
 
-Si ces deux conditions sont remplies, la paire est placée sur la **Hotlist**. Le bot "zoome" alors et passe à la Phase 2, analysant chaque bougie de 1 minute pour cette paire spécifique.
+Si ces trois conditions sont remplies, la paire est placée sur la **Hotlist**. Le bot "zoome" alors et passe à la Phase 2, analysant chaque bougie de 1 minute pour cette paire spécifique.
 
 ### **Phase 2 : Déclencheur Micro & Vérifications de Sécurité (1m)**
 

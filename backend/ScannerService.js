@@ -76,23 +76,37 @@ export class ScannerService {
 
         // --- Fetch Data ---
         const klines4h = await this.fetchKlinesFromBinance(symbol, '4h', 0, 100);
-        if (klines4h.length < 50) return null; // Need enough for EMA50
+        if (klines4h.length < 50) return null; // Need enough for EMA50 and Vol SMA
         
         const klines1h = await this.fetchKlinesFromBinance(symbol, '1h', 0, 100);
         if (klines1h.length < 15) return null; // Need enough for RSI14
 
-        // --- 4h ANALYSIS (Master Trend Filter) ---
+        // --- 4h ANALYSIS ---
         const closes4h = klines4h.map(k => parseFloat(k[4]));
+        const volumes4h = klines4h.map(k => parseFloat(k[5]));
+        
+        // Master Trend Filter
         const lastEma50_4h = EMA.calculate({ period: 50, values: closes4h }).pop();
         const lastClose4h = closes4h[closes4h.length - 1];
-        
         const price_above_ema50_4h = lastClose4h > lastEma50_4h;
         
-        // If master filter is enabled and condition isn't met, we can stop early.
         if (settings.USE_MARKET_REGIME_FILTER && !price_above_ema50_4h) {
-             this.log('SCANNER', `${symbol} filtered out by master 4h trend filter.`);
+             this.log('SCANNER', `[${symbol}] Filtered out by 4h trend filter.`);
              return null;
         }
+
+        // NEW: Volume Spike Filter
+        const lastVolume4h = volumes4h[volumes4h.length - 1];
+        const previousVolumes4h = volumes4h.slice(0, -1);
+        const volumeSma20 = SMA.calculate({ period: 20, values: previousVolumes4h }).pop();
+        
+        const volume_spike_4h = lastVolume4h > (volumeSma20 * 2);
+        
+        if (!volume_spike_4h) {
+            this.log('SCANNER', `[${symbol}] Filtered out by 4h volume filter (Vol: ${lastVolume4h.toFixed(0)}, Avg: ${volumeSma20.toFixed(0)}).`);
+            return null;
+        }
+
 
         // --- 1h ANALYSIS (Safety Filter) ---
         const closes1h = klines1h.map(k => parseFloat(k[4]));
@@ -100,11 +114,11 @@ export class ScannerService {
 
         const analysisData = {
             price_above_ema50_4h,
+            volume_spike_4h,
             rsi_1h,
-            // Default values for realtime indicators, they will be populated by the RealtimeAnalyzer
             priceDirection: 'neutral',
             score: 'HOLD',
-            score_value: 50, // Corresponds to 'HOLD' in the backend SCORE_MAP
+            score_value: 50,
             is_in_squeeze_15m: false,
         };
 
