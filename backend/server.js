@@ -1,4 +1,5 @@
 
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -501,19 +502,24 @@ function connectToBinanceStreams() {
             } else if (msg.e === '24hrTicker') {
                 const symbol = msg.s;
                 const newPrice = parseFloat(msg.c);
+                const newVolume = parseFloat(msg.q); // Total traded quote asset volume for last 24h
 
-                // 1. Update the central price cache for all tickers received
+                // 1. Update the central price cache for PnL calculations etc.
                 botState.priceCache.set(symbol, { price: newPrice });
 
-                // 2. Update the scanner cache if the pair exists there (for UI display)
+                // 2. Update the scanner cache if the pair exists there
                 const updatedPair = botState.scannerCache.find(p => p.symbol === symbol);
                 if (updatedPair) {
                     const oldPrice = updatedPair.price;
                     updatedPair.price = newPrice;
+                    updatedPair.volume = newVolume; // Update the volume in real-time
                     updatedPair.priceDirection = newPrice > oldPrice ? 'up' : newPrice < oldPrice ? 'down' : (updatedPair.priceDirection || 'neutral');
+                    
+                    // Broadcast a full update for this pair to update the entire row in the scanner UI.
+                    broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
                 }
 
-                // 3. Broadcast the price update for UI reactivity (positions, scanner, etc.)
+                // 3. Also broadcast the simple PRICE_UPDATE for other parts of the app that only care about price (like PnL calculation).
                 broadcast({ type: 'PRICE_UPDATE', payload: {symbol: symbol, price: newPrice } });
             }
         } catch (e) {
