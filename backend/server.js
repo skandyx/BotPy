@@ -392,12 +392,15 @@ class RealtimeAnalyzer {
             this.log('TRADE', `[1m TRIGGER] Precision entry signal detected for ${symbol}!`);
             pair.score = 'STRONG BUY'; // Update score to reflect the trigger
             broadcast({ type: 'SCANNER_UPDATE', payload: pair });
-            tradingEngine.evaluateAndOpenTrade(pair, triggerCandle.low);
             
-            // Once triggered, remove from hotlist to prevent re-entry
-            pair.is_on_hotlist = false;
-            removeSymbolFrom1mStream(symbol);
-            broadcast({ type: 'SCANNER_UPDATE', payload: pair });
+            const tradeOpened = tradingEngine.evaluateAndOpenTrade(pair, triggerCandle.low);
+            
+            // Once triggered, remove from hotlist to prevent re-entry ONLY if trade was successful
+            if (tradeOpened) {
+                pair.is_on_hotlist = false;
+                removeSymbolFrom1mStream(symbol);
+                broadcast({ type: 'SCANNER_UPDATE', payload: pair });
+            }
         }
     }
 
@@ -657,8 +660,20 @@ async function runScannerCycle() {
 // --- Trading Engine ---
 const tradingEngine = {
     evaluateAndOpenTrade(pair, slPriceReference) {
-        if (!botState.isRunning) return;
+        if (!botState.isRunning) return false;
         const s = botState.settings;
+        
+        // --- RSI Safety Filter ---
+        if (s.USE_RSI_SAFETY_FILTER) {
+            if (pair.rsi_1h === undefined || pair.rsi_1h === null) {
+                log('TRADE', `[RSI FILTER] Skipped trade for ${pair.symbol}. 1h RSI data not available.`);
+                return false;
+            }
+            if (pair.rsi_1h >= s.RSI_OVERBOUGHT_THRESHOLD) {
+                log('TRADE', `[RSI FILTER] Skipped trade for ${pair.symbol}. 1h RSI (${pair.rsi_1h.toFixed(2)}) is >= threshold (${s.RSI_OVERBOUGHT_THRESHOLD}).`);
+                return false;
+            }
+        }
 
         // --- Parabolic Filter Check ---
         if (s.USE_PARABOLIC_FILTER) {
@@ -671,7 +686,7 @@ const tradingEngine = {
 
                 if (priceIncreasePct > s.PARABOLIC_FILTER_THRESHOLD_PCT) {
                     log('TRADE', `[PARABOLIC FILTER] Skipped trade for ${pair.symbol}. Price increased by ${priceIncreasePct.toFixed(2)}% in the last ${s.PARABOLIC_FILTER_PERIOD_MINUTES} minutes, exceeding threshold of ${s.PARABOLIC_FILTER_THRESHOLD_PCT}%.`);
-                    return; // Abort trade
+                    return false; // Abort trade
                 }
             }
         }
@@ -680,17 +695,17 @@ const tradingEngine = {
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
             log('TRADE', `Skipping trade for ${pair.symbol} due to recent loss cooldown.`);
             pair.score = 'COOLDOWN'; // Ensure state reflects this
-            return;
+            return false;
         }
 
         if (botState.activePositions.length >= s.MAX_OPEN_POSITIONS) {
             log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${s.MAX_OPEN_POSITIONS}) reached.`);
-            return;
+            return false;
         }
 
         if (botState.activePositions.some(p => p.symbol === pair.symbol)) {
             log('TRADE', `Skipping trade for ${pair.symbol}: Position already open.`);
-            return;
+            return false;
         }
 
         const entryPrice = pair.price;
@@ -712,13 +727,13 @@ const tradingEngine = {
         const riskPerUnit = entryPrice - stopLoss;
         if (riskPerUnit <= 0) {
             log('ERROR', `Calculated risk is zero or negative for ${pair.symbol}. SL: ${stopLoss}, Entry: ${entryPrice}. Aborting trade.`);
-            return;
+            return false;
         }
         
         // --- DIVISION BY ZERO PROTECTION ---
         if (!s.USE_ATR_STOP_LOSS && (!s.STOP_LOSS_PCT || s.STOP_LOSS_PCT <= 0)) {
             log('ERROR', `STOP_LOSS_PCT is zero or invalid (${s.STOP_LOSS_PCT}%) while not using ATR stop loss for ${pair.symbol}. Aborting trade.`);
-            return;
+            return false;
         }
         const riskRewardRatio = s.TAKE_PROFIT_PCT / s.STOP_LOSS_PCT;
         const takeProfit = entryPrice + (riskPerUnit * riskRewardRatio);
@@ -751,6 +766,7 @@ const tradingEngine = {
         
         saveData('state');
         broadcast({ type: 'POSITIONS_UPDATED' });
+        return true;
     },
 
     monitorAndManagePositions() {
