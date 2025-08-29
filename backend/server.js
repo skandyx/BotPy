@@ -190,6 +190,9 @@ const loadData = async () => {
             PARTIAL_TP_SELL_QTY_PCT: 50,
             USE_DYNAMIC_POSITION_SIZING: false,
             STRONG_BUY_POSITION_SIZE_PCT: 3.0,
+            USE_PARABOLIC_FILTER: true,
+            PARABOLIC_FILTER_PERIOD_MINUTES: 5,
+            PARABOLIC_FILTER_THRESHOLD_PCT: 3.0,
         };
         await saveData('settings');
     }
@@ -656,6 +659,23 @@ async function runScannerCycle() {
 const tradingEngine = {
     evaluateAndOpenTrade(pair, slPriceReference) {
         if (!botState.isRunning) return;
+        const s = botState.settings;
+
+        // --- Parabolic Filter Check ---
+        if (s.USE_PARABOLIC_FILTER) {
+            const klines1m = realtimeAnalyzer.klineData.get(pair.symbol)?.get('1m');
+            if (klines1m && klines1m.length >= s.PARABOLIC_FILTER_PERIOD_MINUTES) {
+                const checkPeriodKlines = klines1m.slice(-s.PARABOLIC_FILTER_PERIOD_MINUTES);
+                const startingPrice = checkPeriodKlines[0].open;
+                const currentPrice = pair.price;
+                const priceIncreasePct = ((currentPrice - startingPrice) / startingPrice) * 100;
+
+                if (priceIncreasePct > s.PARABOLIC_FILTER_THRESHOLD_PCT) {
+                    log('TRADE', `[PARABOLIC FILTER] Skipped trade for ${pair.symbol}. Price increased by ${priceIncreasePct.toFixed(2)}% in the last ${s.PARABOLIC_FILTER_PERIOD_MINUTES} minutes, exceeding threshold of ${s.PARABOLIC_FILTER_THRESHOLD_PCT}%.`);
+                    return; // Abort trade
+                }
+            }
+        }
         
         const cooldownInfo = botState.recentlyLostSymbols.get(pair.symbol);
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
@@ -664,8 +684,8 @@ const tradingEngine = {
             return;
         }
 
-        if (botState.activePositions.length >= botState.settings.MAX_OPEN_POSITIONS) {
-            log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${botState.settings.MAX_OPEN_POSITIONS}) reached.`);
+        if (botState.activePositions.length >= s.MAX_OPEN_POSITIONS) {
+            log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${s.MAX_OPEN_POSITIONS}) reached.`);
             return;
         }
 
@@ -674,7 +694,6 @@ const tradingEngine = {
             return;
         }
 
-        const s = botState.settings;
         const entryPrice = pair.price;
         let positionSizePct = s.POSITION_SIZE_PCT;
         if (s.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {

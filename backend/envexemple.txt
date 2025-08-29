@@ -68,6 +68,14 @@ USE_DYNAMIC_POSITION_SIZING=false
 # Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
 STRONG_BUY_POSITION_SIZE_PCT=3.0
 
+# Filtre pour éviter d'entrer sur des mèches de liquidité ou des mouvements paraboliques. (true/false)
+# Filtre de sécurité crucial pour éviter les faux signaux sur des pics de volatilité.
+USE_PARABOLIC_FILTER=true
+# La période (en minutes) sur laquelle vérifier une hausse de prix excessive avant d'entrer.
+PARABOLIC_FILTER_PERIOD_MINUTES=5
+# Le pourcentage de hausse maximum autorisé sur la période de vérification.
+PARABOLIC_FILTER_THRESHOLD_PCT=3.0
+
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance
 BINANCE_SECRET_KEY=votre_cle_secrete_binance

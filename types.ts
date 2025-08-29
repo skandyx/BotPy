@@ -153,6 +153,11 @@ export interface BotSettings {
     USE_DYNAMIC_POSITION_SIZING: boolean;
     STRONG_BUY_POSITION_SIZE_PCT: number;
 
+    // Parabolic Move Filter
+    USE_PARABOLIC_FILTER: boolean;
+    PARABOLIC_FILTER_PERIOD_MINUTES: number;
+    PARABOLIC_FILTER_THRESHOLD_PCT: number;
+
     // The single source of truth for the RSI safety filter toggle
     USE_RSI_SAFETY_FILTER: boolean;
 }

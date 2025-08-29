@@ -30,6 +30,9 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARTIAL_TAKE_PROFIT: true,
         PARTIAL_TP_TRIGGER_PCT: 0.8,
         PARTIAL_TP_SELL_QTY_PCT: 50,
+        USE_PARABOLIC_FILTER: true,
+        PARABOLIC_FILTER_PERIOD_MINUTES: 5,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 2.5,
     },
     EQUILIBRE: {
         POSITION_SIZE_PCT: 3.0,
@@ -47,6 +50,9 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 1.0,
         USE_PARTIAL_TAKE_PROFIT: false,
+        USE_PARABOLIC_FILTER: true,
+        PARABOLIC_FILTER_PERIOD_MINUTES: 5,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 3.5,
     },
     AGRESSIF: {
         POSITION_SIZE_PCT: 4.0,
@@ -62,6 +68,9 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_AUTO_BREAKEVEN: false,
         BREAKEVEN_TRIGGER_PCT: 1.5,
         USE_PARTIAL_TAKE_PROFIT: false,
+        USE_PARABOLIC_FILTER: false,
+        PARABOLIC_FILTER_PERIOD_MINUTES: 3,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 5.0,
     }
 };
 
@@ -96,7 +105,10 @@ const tooltips: Record<string, string> = {
     PARTIAL_TP_TRIGGER_PCT: "Le pourcentage de profit (%) auquel vendre la première partie de la position.",
     PARTIAL_TP_SELL_QTY_PCT: "Le pourcentage (%) de la quantité de position initiale à vendre pour la prise de profit partielle.",
     USE_DYNAMIC_POSITION_SIZING: "Allouer une taille de position plus importante pour les signaux 'STRONG BUY' de la plus haute qualité par rapport aux signaux 'BUY' réguliers.",
-    STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé."
+    STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
+    USE_PARABOLIC_FILTER: "Active un filtre de sécurité pour éviter d'ouvrir des trades sur des mouvements de prix soudains et verticaux (paraboliques), qui sont souvent des pièges de liquidité.",
+    PARABOLIC_FILTER_PERIOD_MINUTES: "La période (en minutes) sur laquelle vérifier une hausse de prix parabolique avant d'entrer dans un trade.",
+    PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -239,286 +251,295 @@ const SettingsPage: React.FC = () => {
         }
     };
     
-    const handleClearData = async () => {
-        setIsClearModalOpen(false);
+    const handleClearAllData = async () => {
+        setIsClearModalOpen(false); // Close the modal first
         setIsSaving(true);
         try {
-            await api.clearAllTradeData();
-            showMessage("Toutes les données de trading ont été effacées.");
-            refreshData(); 
-            // The settings will auto-reload via the layout effect triggered by refreshData/incrementSettings
+            const result = await api.clearAllTradeData();
+            if (result.success) {
+                showMessage("Toutes les données de transaction ont été effacées avec succès !");
+                refreshData(); // This will trigger a full data refresh across the app
+            } else {
+                 showMessage("Échec de l'effacement des données.", 'error');
+            }
         } catch (error: any) {
-            showMessage(`Échec de l'effacement des données : ${error.message}`, 'error');
+             showMessage(error.message || "Une erreur est survenue lors de l'effacement des données.", 'error');
         } finally {
             setIsSaving(false);
         }
     };
-    
-    if (!settings) return <div className="flex justify-center items-center h-64"><Spinner /></div>;
-    
-    const isAnyActionInProgress = isSaving || isTestingCoinGecko || isTestingBinance;
 
-    const renderField = (id: keyof BotSettings | 'newPassword' | 'confirmPassword', label: string, type: string = "number", props: any = {}) => (
-        <div>
-            <label htmlFor={id} className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                <span>{label}</span>
-                {tooltips[id] && <Tooltip text={tooltips[id]} />}
-            </label>
-            <input
-                type={type}
-                id={id}
-                value={id in settings ? settings[id as keyof BotSettings] as any : (id === 'newPassword' ? newPassword : confirmPassword)}
-                onChange={(e) => {
-                    const value = type === 'number' ? parseFloat(e.target.value) : e.target.value;
-                    if (id in settings) {
-                         handleChange(id as keyof BotSettings, value)
-                    } else if (id === 'newPassword') {
-                        setNewPassword(e.target.value);
-                    } else {
-                        setConfirmPassword(e.target.value);
-                    }
-                }}
-                className={inputClass}
-                {...props}
-            />
-        </div>
-    );
-
-    const renderToggle = (id: keyof BotSettings, label: string) => (
-         <div className="flex flex-col justify-between h-full">
-            <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                <span>{label}</span>
-                {tooltips[id] && <Tooltip text={tooltips[id]} />}
-            </label>
-            <div className="mt-2">
-                <ToggleSwitch checked={settings[id] as boolean} onChange={(val) => handleChange(id, val)} leftLabel="ON" rightLabel="OFF" />
+    const InputField: React.FC<{
+        id: keyof BotSettings;
+        label: string;
+        type?: 'text' | 'number';
+        step?: string;
+        children?: React.ReactNode;
+    }> = ({ id, label, type = 'number', step, children }) => {
+        if (!settings) return null;
+        return (
+            <div>
+                <label htmlFor={id} className="flex items-center text-sm font-medium text-gray-300">
+                    {label}
+                    <Tooltip text={tooltips[id]} />
+                </label>
+                <div className="relative mt-1">
+                    <input
+                        type={type}
+                        id={id}
+                        step={step}
+                        value={settings[id] as any}
+                        onChange={(e) => handleChange(id, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)}
+                        className={inputClass}
+                    />
+                    {children && <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">{children}</div>}
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
+
+    const ToggleField: React.FC<{
+        id: keyof BotSettings;
+        label: string;
+    }> = ({ id, label }) => {
+        if (!settings) return null;
+        return (
+            <div className="flex justify-between items-center bg-[#0c0e12]/30 p-3 rounded-lg">
+                <label htmlFor={id} className="flex items-center text-sm font-medium text-gray-300">
+                    {label}
+                    <Tooltip text={tooltips[id]} />
+                </label>
+                <ToggleSwitch
+                    checked={settings[id] as boolean}
+                    onChange={(checked) => handleChange(id, checked)}
+                    leftLabel="ON"
+                    rightLabel="OFF"
+                />
+            </div>
+        );
+    };
+
+    if (!settings) {
+        return <div className="flex justify-center items-center h-64"><Spinner /></div>;
+    }
 
     return (
-        <>
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-2xl sm:text-3xl font-bold text-white">Paramètres</h2>
-                <div className="flex items-center space-x-4 flex-shrink-0 w-full sm:w-auto">
-                    {saveMessage && <p className={`text-sm transition-opacity ${saveMessage.type === 'success' ? 'text-[#f0b90b]' : 'text-red-400'}`}>{saveMessage.text}</p>}
-                    <button onClick={handleSave} disabled={isAnyActionInProgress} className="w-full sm:w-auto inline-flex justify-center rounded-md border border-transparent bg-[#f0b90b] py-2 px-4 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50">
-                        {isSaving ? "Sauvegarde..." : "Sauvegarder les Paramètres"}
+        <div className="space-y-8 max-w-7xl mx-auto">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-bold text-white">Paramètres</h2>
+                <div className="relative">
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="inline-flex items-center justify-center rounded-md border border-transparent bg-[#f0b90b] px-6 py-2 text-sm font-semibold text-black shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50"
+                    >
+                         {isSaving ? <Spinner size="sm" /> : 'Sauvegarder les Changements'}
                     </button>
+                    {saveMessage && (
+                        <div className={`absolute top-full mt-2 right-0 text-xs px-3 py-1 rounded-md ${saveMessage.type === 'success' ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}`}>
+                           {saveMessage.text}
+                        </div>
+                    )}
                 </div>
             </div>
             
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-4">
-                <h3 className="text-lg font-semibold text-white">Profils de Configuration Rapide</h3>
-                <div className="flex flex-wrap gap-3">
-                    {(Object.keys(settingProfiles) as ProfileName[]).map(name => (
+             {/* Profile Selector */}
+            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                <h3 className="text-lg font-semibold text-white mb-1">Profil de Configuration Rapide</h3>
+                <p className="text-sm text-gray-400 mb-4">Sélectionnez un profil pour charger rapidement un ensemble de paramètres prédéfinis. Tout changement manuel vous fera passer au profil "Personnalisé".</p>
+                <div className="isolate inline-flex rounded-md shadow-sm">
+                    {(['PRUDENT', 'EQUILIBRE', 'AGRESSIF'] as ProfileName[]).map((profile, idx) => (
                         <button
-                            key={name}
-                            onClick={() => handleProfileSelect(name)}
-                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-                                activeProfile === name 
-                                ? 'bg-[#f0b90b] text-black shadow-md' 
-                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            }`}
+                            key={profile}
+                            type="button"
+                            onClick={() => handleProfileSelect(profile)}
+                            className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-[#3e4451] focus:z-10 transition-colors
+                                ${activeProfile === profile ? 'bg-[#f0b90b] text-black' : 'bg-[#14181f] text-gray-300 hover:bg-[#2b2f38]'}
+                                ${idx === 0 ? 'rounded-l-md' : ''}
+                                ${idx === 2 ? 'rounded-r-md' : '-ml-px'}
+                            `}
                         >
-                            {name.charAt(0) + name.slice(1).toLowerCase()}
+                            {profile}
                         </button>
                     ))}
-                    <button
-                        disabled
-                        className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-                            activeProfile === 'PERSONNALISE' 
-                            ? 'bg-sky-800 text-sky-200 cursor-default' 
-                            : 'bg-gray-800 text-gray-500 cursor-default'
-                        }`}
-                    >
-                        Personnalisé
-                    </button>
+                </div>
+                 {activeProfile === 'PERSONNALISE' && <span className="ml-4 text-sm font-semibold text-sky-400">-- Profil Personnalisé Actif --</span>}
+            </div>
+
+            {/* Main Settings Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
+
+                {/* Left Column */}
+                <div className="space-y-6">
+                    {/* Trading Parameters */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Paramètres de Trading</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <InputField id="MAX_OPEN_POSITIONS" label="Positions Ouvertes Max" />
+                             <InputField id="POSITION_SIZE_PCT" label="Taille de Position (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
+                             <InputField id="STOP_LOSS_PCT" label="Stop Loss (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
+                             <InputField id="TAKE_PROFIT_PCT" label="Take Profit (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
+                             <InputField id="INITIAL_VIRTUAL_BALANCE" label="Solde Virtuel Initial" step="100" children={<span className="text-gray-400 text-sm">$</span>}/>
+                             <InputField id="SLIPPAGE_PCT" label="Slippage Simulé (%)" step="0.01" children={<span className="text-gray-400 text-sm">%</span>}/>
+                        </div>
+                    </div>
+                    {/* Advanced Strategy */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie Avancée</h3>
+                        <div className="space-y-4">
+                            <ToggleField id="USE_MARKET_REGIME_FILTER" label="Filtre de Tendance Maître (4h)" />
+                            <ToggleField id="USE_VOLUME_CONFIRMATION" label="Confirmation par Volume (1m)" />
+                            <ToggleField id="USE_RSI_SAFETY_FILTER" label="Filtre de Sécurité RSI (1h)" />
+                             <div className={`transition-opacity ${settings.USE_RSI_SAFETY_FILTER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="RSI_OVERBOUGHT_THRESHOLD" label="Seuil de Surchauffe RSI" />
+                            </div>
+                            <ToggleField id="REQUIRE_STRONG_BUY" label="Exiger un 'STRONG BUY' pour l'entrée" />
+                            <InputField id="LOSS_COOLDOWN_HOURS" label="Cooldown après Perte (Heures)" children={<span className="text-gray-400 text-sm">h</span>}/>
+                        </div>
+                    </div>
+                    
+                     {/* Parabolic Filter */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Filtre Anti-Parabolique</h3>
+                        <div className="space-y-4">
+                             <ToggleField id="USE_PARABOLIC_FILTER" label="Activer le Filtre Anti-Mèches" />
+                            <div className={`grid grid-cols-2 gap-4 transition-opacity ${settings.USE_PARABOLIC_FILTER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                 <InputField id="PARABOLIC_FILTER_PERIOD_MINUTES" label="Période de Vérif. (min)" />
+                                 <InputField id="PARABOLIC_FILTER_THRESHOLD_PCT" label="Seuil de Hausse (%)" step="0.1" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-6">
+                    {/* Market Scanner */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Scanner de Marché</h3>
+                        <div className="grid grid-cols-1 gap-4">
+                            <InputField id="MIN_VOLUME_USD" label="Volume 24h Minimum" step="1000000" children={<span className="text-gray-400 text-sm">$</span>}/>
+                            <InputField id="COINGECKO_SYNC_SECONDS" label="Intervalle de Scan (secondes)" children={<span className="text-gray-400 text-sm">s</span>}/>
+                            <div>
+                                <label htmlFor="EXCLUDED_PAIRS" className="flex items-center text-sm font-medium text-gray-300">
+                                    Paires Exclues (séparées par des virgules)
+                                    <Tooltip text={tooltips.EXCLUDED_PAIRS} />
+                                </label>
+                                <textarea
+                                    id="EXCLUDED_PAIRS"
+                                    value={settings.EXCLUDED_PAIRS}
+                                    onChange={(e) => handleChange('EXCLUDED_PAIRS', e.target.value)}
+                                    rows={2}
+                                    className={inputClass + " font-mono"}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Dynamic Risk Management */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Gestion Dynamique du Risque</h3>
+                        <div className="space-y-4">
+                            <ToggleField id="USE_ATR_STOP_LOSS" label="Stop Loss basé sur l'ATR" />
+                             <div className={`transition-opacity ${settings.USE_ATR_STOP_LOSS ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="ATR_MULTIPLIER" label="Multiplicateur ATR" step="0.1" />
+                            </div>
+                            <hr className="border-gray-700"/>
+                            <ToggleField id="USE_AUTO_BREAKEVEN" label="Mise à Zéro Automatique (Break-Even)" />
+                             <div className={`transition-opacity ${settings.USE_AUTO_BREAKEVEN ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="BREAKEVEN_TRIGGER_PCT" label="Déclencheur Break-Even (%)" step="0.1" />
+                            </div>
+                            <hr className="border-gray-700"/>
+                            <ToggleField id="USE_PARTIAL_TAKE_PROFIT" label="Prise de Profit Partielle" />
+                             <div className={`grid grid-cols-2 gap-4 transition-opacity ${settings.USE_PARTIAL_TAKE_PROFIT ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                 <InputField id="PARTIAL_TP_TRIGGER_PCT" label="Déclencheur Partiel (%)" step="0.1" />
+                                 <InputField id="PARTIAL_TP_SELL_QTY_PCT" label="Quantité à Vendre (%)" />
+                            </div>
+                            <hr className="border-gray-700"/>
+                            <ToggleField id="USE_TRAILING_STOP_LOSS" label="Stop Loss Suiveur (Trailing)" />
+                            <div className={`transition-opacity ${settings.USE_TRAILING_STOP_LOSS ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="TRAILING_STOP_LOSS_PCT" label="Distance Trailing Stop (%)" step="0.1" />
+                            </div>
+                             <hr className="border-gray-700"/>
+                            <ToggleField id="USE_DYNAMIC_POSITION_SIZING" label="Dimensionnement Dynamique de Position" />
+                            <div className={`transition-opacity ${settings.USE_DYNAMIC_POSITION_SIZING ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="STRONG_BUY_POSITION_SIZE_PCT" label="Taille Position 'STRONG BUY' (%)" step="0.1" />
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg shadow-lg p-4 sm:p-6 space-y-8">
-                <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Paramètres du Bot</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {renderField('INITIAL_VIRTUAL_BALANCE', "Solde Virtuel Initial ($)")}
-                        {renderField('MAX_OPEN_POSITIONS', "Positions Ouvertes Max")}
-                        {renderField('POSITION_SIZE_PCT', "Taille de Position (%)")}
-                        {renderField('TAKE_PROFIT_PCT', "Take Profit (%)")}
-                        {renderField('STOP_LOSS_PCT', "Stop Loss (%)")}
-                        {renderField('SLIPPAGE_PCT', "Slippage (%)")}
-                    </div>
-                    <hr className="border-[#2b2f38] my-6" />
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-                        {renderToggle('USE_TRAILING_STOP_LOSS', "Utiliser le Trailing Stop Loss")}
-                        {renderField('TRAILING_STOP_LOSS_PCT', "Trailing Stop Loss (%)")}
-                    </div>
-                </div>
-
-                <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Scanner de Marché & Filtres Stratégiques</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                       {renderField('MIN_VOLUME_USD', "Volume Min (USD)")}
-                       {renderField('COINGECKO_SYNC_SECONDS', "Synchro Scanner (secondes)")}
-                       {renderField('LOSS_COOLDOWN_HOURS', "Cooldown sur Perte (Heures)")}
-                        <div className="md:col-span-2">
-                             <label htmlFor="COINGECKO_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                                <span>Clé API CoinGecko</span>
-                                {tooltips['COINGECKO_API_KEY'] && <Tooltip text={tooltips['COINGECKO_API_KEY']} />}
-                            </label>
-                            <div className="mt-1 flex rounded-md shadow-sm">
-                                <input
-                                    type="text"
-                                    id="COINGECKO_API_KEY"
-                                    value={settings.COINGECKO_API_KEY}
-                                    onChange={(e) => handleChange('COINGECKO_API_KEY', e.target.value)}
-                                    className="block w-full min-w-0 flex-1 rounded-none rounded-l-md border-[#3e4451] bg-[#0c0e12] focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={handleTestCoinGeckoConnection}
-                                    disabled={isAnyActionInProgress || !settings.COINGECKO_API_KEY}
-                                    className="relative -ml-px inline-flex items-center space-x-2 rounded-r-md border border-[#3e4451] bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 focus:z-10 focus:border-[#f0b90b] focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50"
-                                >
-                                    {isTestingCoinGecko ? <Spinner size="sm" /> : <span>Tester</span>}
-                                </button>
-                            </div>
-                        </div>
-                        {renderField('EXCLUDED_PAIRS', "Paires Exclues", "text", { placeholder: "USDCUSDT,FDUSDUSDT" })}
-                    </div>
-                    <hr className="border-[#2b2f38] my-6" />
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
-                         {renderToggle('USE_MARKET_REGIME_FILTER', "Filtre de Tendance 4h")}
-                         {renderToggle('USE_VOLUME_CONFIRMATION', "Confirmation par Volume 15m")}
-                         {renderToggle('USE_RSI_SAFETY_FILTER', "Filtre de Sécurité RSI 1h")}
-                         {renderToggle('REQUIRE_STRONG_BUY', "Exiger 'Strong Buy'")}
-                    </div>
-                </div>
-
-                 <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Stratégie Avancée & Gestion des Risques</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
-                            {renderToggle('USE_ATR_STOP_LOSS', "Stop Loss Basé sur l'ATR")}
-                            {renderField('ATR_MULTIPLIER', "Multiplicateur ATR")}
-                        </div>
-                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
-                            {renderToggle('USE_AUTO_BREAKEVEN', "Mise à Seuil de Rentabilité Auto")}
-                            {renderField('BREAKEVEN_TRIGGER_PCT', "Déclencheur Seuil de Rentabilité (%)")}
-                        </div>
-                         <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
-                            {renderToggle('USE_PARTIAL_TAKE_PROFIT', "Prise de Profit Partielle")}
-                            {renderField('PARTIAL_TP_TRIGGER_PCT', "Déclencheur TP Partiel (%)")}
-                            {renderField('PARTIAL_TP_SELL_QTY_PCT', "Quantité de Vente TP Partiel (%)")}
-                        </div>
-                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
-                            {renderToggle('USE_DYNAMIC_POSITION_SIZING', "Dimensionnement de Position Dynamique")}
-                            {renderField('STRONG_BUY_POSITION_SIZE_PCT', "Taille de Position 'Strong Buy' (%)")}
-                        </div>
-                        <div className="p-4 bg-[#0c0e12]/50 rounded-lg border border-[#2b2f38] md:col-span-2 lg:col-span-2 space-y-4">
-                            <label className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                                <span>Filtre RSI de Surachat</span>
-                                {tooltips['RSI_OVERBOUGHT_THRESHOLD'] && <Tooltip text={tooltips['RSI_OVERBOUGHT_THRESHOLD']} />}
-                            </label>
-                            {renderField('RSI_OVERBOUGHT_THRESHOLD', "Seuil de Surachat RSI")}
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Identifiants API (Modes Réels)</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* API and Security Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                 <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                     <h3 className="text-lg font-semibold text-white mb-4">Clés API</h3>
+                     <div className="space-y-4">
                         <div>
-                             <label htmlFor="BINANCE_API_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                                <span>Clé API Binance</span>
-                                {tooltips['BINANCE_API_KEY'] && <Tooltip text={tooltips['BINANCE_API_KEY']} />}
+                            <label htmlFor="BINANCE_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
+                                Clé API Binance <Tooltip text={tooltips.BINANCE_API_KEY} />
                             </label>
-                            <input
-                                type="text"
-                                id="BINANCE_API_KEY"
-                                value={settings.BINANCE_API_KEY}
-                                onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)}
-                                className={inputClass}
-                            />
+                             <input type="text" id="BINANCE_API_KEY" value={settings.BINANCE_API_KEY} onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)} className={inputClass} />
                         </div>
-                         <div>
-                             <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center space-x-2 text-sm font-medium text-gray-300">
-                                <span>Clé Secrète Binance</span>
-                                {tooltips['BINANCE_SECRET_KEY'] && <Tooltip text={tooltips['BINANCE_SECRET_KEY']} />}
-                            </label>
-                             <div className="mt-1 flex rounded-md shadow-sm">
-                                <input
-                                    type="password"
-                                    id="BINANCE_SECRET_KEY"
-                                    value={settings.BINANCE_SECRET_KEY}
-                                    onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)}
-                                    className="block w-full min-w-0 flex-1 rounded-none rounded-l-md border-[#3e4451] bg-[#0c0e12] focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white"
-                                    placeholder="Conservé en toute sécurité côté serveur"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={handleTestBinanceConnection}
-                                    disabled={isAnyActionInProgress || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY}
-                                    className="relative -ml-px inline-flex items-center space-x-2 rounded-r-md border border-[#3e4451] bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 focus:z-10 focus:border-[#f0b90b] focus:outline-none focus:ring-1 focus:ring-[#f0b90b] disabled:opacity-50"
-                                >
-                                    {isTestingBinance ? <Spinner size="sm" /> : <span>Tester</span>}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {renderField('newPassword', "Nouveau Mot de Passe", "password")}
-                        {renderField('confirmPassword', "Confirmer le Mot de Passe", "password")}
-                         <div className="flex items-end">
-                            <button
-                                onClick={handleUpdatePassword}
-                                disabled={isSaving || !newPassword || newPassword !== confirmPassword}
-                                className="w-full inline-flex justify-center rounded-md border border-transparent bg-gray-700 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-[#0c0e12] disabled:opacity-50"
-                            >
-                                Changer le Mot de Passe
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div>
-                    <h3 className="text-lg font-semibold text-white mb-4">Zone de Danger</h3>
-                    <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                         <div>
-                            <p className="font-semibold text-red-300">Effacer Toutes les Données de Trading</p>
-                            <p className="text-sm text-red-400 mt-1">
-                                Cette action supprimera définitivement tout l'historique des trades et les positions actives.
-                                Votre solde virtuel sera réinitialisé à la valeur 'Solde Virtuel Initial'. Cette action est irréversible.
-                            </p>
+                            <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center text-sm font-medium text-gray-300">
+                                Clé Secrète Binance <Tooltip text={tooltips.BINANCE_SECRET_KEY} />
+                            </label>
+                            <input type="password" id="BINANCE_SECRET_KEY" value={settings.BINANCE_SECRET_KEY} onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)} className={inputClass} />
                         </div>
-                        <button
-                            onClick={() => setIsClearModalOpen(true)}
-                            disabled={isSaving}
-                            className="w-full sm:w-auto flex-shrink-0 inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-red-900/20 disabled:opacity-50"
-                        >
-                            Effacer les Données
+                         <button onClick={handleTestBinanceConnection} disabled={isTestingBinance} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
+                             {isTestingBinance ? <Spinner size="sm" /> : 'Tester la Connexion Binance'}
+                         </button>
+                         <hr className="border-gray-700"/>
+                          <div>
+                            <label htmlFor="COINGECKO_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
+                                Clé API CoinGecko <Tooltip text={tooltips.COINGECKO_API_KEY} />
+                            </label>
+                            <input type="text" id="COINGECKO_API_KEY" value={settings.COINGECKO_API_KEY} onChange={(e) => handleChange('COINGECKO_API_KEY', e.target.value)} className={inputClass} />
+                        </div>
+                         <button onClick={handleTestCoinGeckoConnection} disabled={isTestingCoinGecko} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
+                             {isTestingCoinGecko ? <Spinner size="sm" /> : 'Tester la Connexion CoinGecko'}
+                         </button>
+                     </div>
+                 </div>
+
+                 <div className="space-y-6">
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                         <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
+                         <div className="space-y-4">
+                             <div>
+                                 <label htmlFor="newPassword" className="text-sm font-medium text-gray-300">Nouveau Mot de Passe</label>
+                                 <input type="password" id="newPassword" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} placeholder="Au moins 8 caractères"/>
+                             </div>
+                             <div>
+                                 <label htmlFor="confirmPassword" className="text-sm font-medium text-gray-300">Confirmer le Mot de Passe</label>
+                                 <input type="password" id="confirmPassword" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClass} />
+                             </div>
+                             <button onClick={handleUpdatePassword} disabled={isSaving} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-black bg-sky-400 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50">
+                                 Mettre à Jour le Mot de Passe
+                             </button>
+                         </div>
+                    </div>
+                     <div className="bg-red-900/50 border border-red-700 rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-red-200 mb-2">Zone de Danger</h3>
+                        <p className="text-sm text-red-300 mb-4">Cette action est irréversible. Elle effacera tout votre historique de transactions et réinitialisera votre solde virtuel.</p>
+                        <button onClick={() => setIsClearModalOpen(true)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                           Effacer Toutes les Données de Transaction
                         </button>
                     </div>
-                </div>
+                 </div>
             </div>
+            
+            <Modal
+                isOpen={isClearModalOpen}
+                onClose={() => setIsClearModalOpen(false)}
+                onConfirm={handleClearAllData}
+                title="Confirmer l'effacement des données ?"
+                confirmText="Oui, tout effacer"
+                confirmVariant="danger"
+            >
+                Êtes-vous absolument certain ? Toutes vos positions, votre historique de transactions et votre P&L seront définitivement supprimés. Votre solde sera réinitialisé.
+            </Modal>
         </div>
-        <Modal
-            isOpen={isClearModalOpen}
-            onClose={() => setIsClearModalOpen(false)}
-            onConfirm={handleClearData}
-            title="Effacer toutes les données de trading ?"
-            confirmText="Oui, tout effacer"
-            confirmVariant="danger"
-        >
-            Êtes-vous absolument sûr ? Cette action ne peut pas être annulée. Tout l'historique des trades
-            et les positions en cours seront perdus.
-        </Modal>
-        </>
     );
 };
 
