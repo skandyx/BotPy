@@ -191,6 +191,8 @@ const loadData = async () => {
             ATR_MULTIPLIER: 1.5,
             USE_AUTO_BREAKEVEN: true,
             BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
+            ADJUST_BREAKEVEN_FOR_FEES: process.env.ADJUST_BREAKEVEN_FOR_FEES === 'true',
+            TRANSACTION_FEE_PCT: parseFloat(process.env.TRANSACTION_FEE_PCT) || 0.1,
             USE_RSI_SAFETY_FILTER: true,
             RSI_OVERBOUGHT_THRESHOLD: 75,
             USE_PARTIAL_TAKE_PROFIT: false,
@@ -827,9 +829,18 @@ const tradingEngine = {
 
             // Auto Break-even
             if (s.USE_AUTO_BREAKEVEN && !pos.is_at_breakeven && pnlPct >= s.BREAKEVEN_TRIGGER_PCT) {
-                pos.stop_loss = pos.entry_price;
+                let newStopLoss = pos.entry_price;
+                let logMessage = `[${pos.symbol}] Stop Loss moved to Break-even at $${pos.entry_price}.`;
+
+                if (s.ADJUST_BREAKEVEN_FOR_FEES && s.TRANSACTION_FEE_PCT > 0) {
+                    const feeMultiplier = 1 + (s.TRANSACTION_FEE_PCT / 100) * 2; // *2 for round trip
+                    newStopLoss = pos.entry_price * feeMultiplier;
+                    logMessage = `[${pos.symbol}] Stop Loss moved to REAL Break-even (fees included) at $${newStopLoss.toFixed(4)}.`;
+                }
+                
+                pos.stop_loss = newStopLoss;
                 pos.is_at_breakeven = true;
-                log('TRADE', `[${pos.symbol}] Stop Loss moved to Break-even at $${pos.entry_price}.`);
+                log('TRADE', logMessage);
             }
             
             // Trailing Stop Loss

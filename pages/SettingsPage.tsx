@@ -34,6 +34,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         PARTIAL_TP_SELL_QTY_PCT: 50,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 1.0,
+        ADJUST_BREAKEVEN_FOR_FEES: true,
+        TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: true,
         TRAILING_STOP_LOSS_PCT: 2.5, // Wide trailing stop
         TAKE_PROFIT_PCT: 15.0, // High target, rely on trailing
@@ -52,6 +54,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         TAKE_PROFIT_PCT: 1.5, // Very tight TP
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: false,
+        ADJUST_BREAKEVEN_FOR_FEES: false,
+        TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: false,
     },
     'Le Chasseur de Volatilité': { // AGRESSIF
@@ -67,6 +71,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 2.0,
+        ADJUST_BREAKEVEN_FOR_FEES: true,
+        TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: true,
         TRAILING_STOP_LOSS_PCT: 1.2, // Tight, aggressive trailing stop
     }
@@ -96,6 +102,8 @@ const tooltips: Record<string, string> = {
     ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
     BREAKEVEN_TRIGGER_PCT: "Le pourcentage de profit (%) auquel déclencher le passage au seuil de rentabilité (ex: 0.5% signifie que lorsque le profit atteint 0.5%, le SL est déplacé au prix d'entrée).",
+    ADJUST_BREAKEVEN_FOR_FEES: "Si activé, le 'Break-Even' sera légèrement au-dessus du prix d'entrée pour couvrir les frais de transaction de l'achat et de la vente, assurant une sortie à 0$ P&L net.",
+    TRANSACTION_FEE_PCT: "Le pourcentage de frais de transaction par ordre sur votre exchange (ex: 0.1 pour 0.1%). Utilisé pour calculer le point de Break-Even réel.",
     USE_RSI_SAFETY_FILTER: "Empêcher l'ouverture de nouveaux trades si le RSI est dans la zone de 'surachat', évitant d'acheter à un potentiel sommet local.",
     RSI_OVERBOUGHT_THRESHOLD: "Le niveau RSI au-dessus duquel un signal de trade sera ignoré (ex: 70).",
     USE_PARTIAL_TAKE_PROFIT: "Vendre une partie de la position à un objectif de profit préliminaire et laisser le reste courir avec le trailing stop loss.",
@@ -431,8 +439,12 @@ const SettingsPage: React.FC = () => {
                             </div>
                             <hr className="border-gray-700"/>
                             <ToggleField id="USE_AUTO_BREAKEVEN" label="Mise à Zéro Automatique (Break-Even)" />
-                             <div className={`transition-opacity ${settings.USE_AUTO_BREAKEVEN ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                             <div className={`pl-4 space-y-4 mt-2 transition-opacity ${settings.USE_AUTO_BREAKEVEN ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <InputField id="BREAKEVEN_TRIGGER_PCT" label="Déclencheur Break-Even (%)" step="0.1" />
+                                <ToggleField id="ADJUST_BREAKEVEN_FOR_FEES" label="Ajuster pour les Frais" />
+                                <div className={`transition-opacity ${settings.ADJUST_BREAKEVEN_FOR_FEES ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                    <InputField id="TRANSACTION_FEE_PCT" label="Frais de Transaction (%)" step="0.01" />
+                                </div>
                             </div>
                             <hr className="border-gray-700"/>
                             <ToggleField id="USE_PARTIAL_TAKE_PROFIT" label="Prise de Profit Partielle" />

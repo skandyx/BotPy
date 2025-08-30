@@ -46,6 +46,10 @@ ATR_MULTIPLIER=1.5
 USE_AUTO_BREAKEVEN=true
 # Le pourcentage de profit (%) pour déclencher le break-even (ex: 0.5 pour +0.5%).
 BREAKEVEN_TRIGGER_PCT=0.5
+# Si activé, le break-even couvrira aussi les frais de transaction (true/false).
+ADJUST_BREAKEVEN_FOR_FEES=true
+# Le pourcentage de frais par ordre (ex: 0.1 pour 0.1%).
+TRANSACTION_FEE_PCT=0.1
 
 # Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
 # Filtre de sécurité pour éviter d'acheter au sommet.

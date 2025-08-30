@@ -139,7 +139,9 @@ export interface BotSettings {
     // Auto Break-even
     USE_AUTO_BREAKEVEN: boolean;
     BREAKEVEN_TRIGGER_PCT: number; // PnL % to trigger break-even
-    
+    ADJUST_BREAKEVEN_FOR_FEES: boolean;
+    TRANSACTION_FEE_PCT: number;
+
     // RSI Overbought Filter
     RSI_OVERBOUGHT_THRESHOLD: number;
     
