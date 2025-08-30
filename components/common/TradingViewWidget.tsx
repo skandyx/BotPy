@@ -29,7 +29,11 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultIn
         // If a widget instance from a previous render/symbol already exists, remove it first.
         // This is the core of the cleanup logic.
         if (widgetRef.current) {
-            widgetRef.current.remove();
+            try {
+                widgetRef.current.remove();
+            } catch (error) {
+                console.warn("Error removing old TradingView widget:", error);
+            }
             widgetRef.current = null;
         }
         
@@ -71,7 +75,11 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({ symbol, defaultIn
     // or when the dependencies (symbol) change, right before the effect runs again.
     return () => {
         if (widgetRef.current) {
-            widgetRef.current.remove();
+            try {
+                widgetRef.current.remove();
+            } catch(error) {
+                console.warn("Error cleaning up TradingView widget on unmount:", error);
+            }
             widgetRef.current = null;
         }
     };
